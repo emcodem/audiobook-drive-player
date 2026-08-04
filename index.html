@@ -34,6 +34,7 @@
 
 <main id="playerView" class="view hidden">
   <button id="backToLibraryBtn" class="btn ghost">&larr; Library</button>
+  <img id="playerCover" class="player-cover" src="./icons/icon-192.png" alt="">
   <h2 id="playerTitle"></h2>
 
   <div class="scrubber-row">
@@ -59,6 +60,17 @@
       <option value="1.75">1.75x</option>
       <option value="2">2.0x</option>
     </select>
+
+    <label for="sleepSelect">Sleep</label>
+    <select id="sleepSelect">
+      <option value="0">Off</option>
+      <option value="5">5 min</option>
+      <option value="10">10 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60">60 min</option>
+    </select>
+    <span id="sleepRemainingLabel" class="muted"></span>
   </div>
 
   <section id="chaptersSection">

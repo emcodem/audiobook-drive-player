@@ -1,17 +1,21 @@
 import { getPosition, setPosition } from './storage.js';
 import { fetchChapters } from './chapters.js';
+import { getThumbnail } from './thumbnails.js';
 
 const SAVE_INTERVAL_MS = 8000;
 
 export class Player {
-  constructor({ audioEl, onChaptersLoaded, onTimeUpdate, onEnded }) {
+  constructor({ audioEl, onChaptersLoaded, onTimeUpdate, onEnded, onSleepTimerEnded }) {
     this.audioEl = audioEl;
     this.book = null;
     this.chapters = [];
     this.onChaptersLoaded = onChaptersLoaded || (() => {});
     this.onTimeUpdate = onTimeUpdate || (() => {});
     this.onEnded = onEnded || (() => {});
+    this.onSleepTimerEnded = onSleepTimerEnded || (() => {});
     this._lastSaveAt = 0;
+    this._sleepTimeoutId = null;
+    this._sleepDeadline = null;
 
     audioEl.addEventListener('timeupdate', () => this._handleTimeUpdate());
     audioEl.addEventListener('pause', () => this._savePosition());
@@ -28,6 +32,7 @@ export class Player {
   async load(book) {
     this.book = book;
     this.chapters = [];
+    this.setSleepTimer(0);
 
     const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
     this.audioEl.src = `./drive-audio/${book.audioFileId}?mime=${mime}`;
@@ -36,6 +41,30 @@ export class Player {
     const chapterData = await fetchChapters(book.chaptersFileId);
     this.chapters = chapterData ? chapterData.chapters : [];
     this.onChaptersLoaded(this.chapters);
+  }
+
+  // minutes === 0 cancels any active timer.
+  setSleepTimer(minutes) {
+    clearTimeout(this._sleepTimeoutId);
+    this._sleepTimeoutId = null;
+    this._sleepDeadline = null;
+    if (minutes > 0) {
+      const ms = minutes * 60 * 1000;
+      this._sleepDeadline = Date.now() + ms;
+      this._sleepTimeoutId = setTimeout(() => {
+        this.pause();
+        this._sleepDeadline = null;
+        this.onSleepTimerEnded();
+      }, ms);
+    }
+  }
+
+  // Seconds remaining, or null if no sleep timer is active. This counts down
+  // in real (wall-clock) time regardless of play/pause state, matching how
+  // sleep timers behave in other audiobook/podcast apps.
+  getSleepRemainingSeconds() {
+    if (!this._sleepDeadline) return null;
+    return Math.max(0, Math.round((this._sleepDeadline - Date.now()) / 1000));
   }
 
   // Re-fetches the same URL after a fresh token has been broadcast to the
@@ -125,8 +154,10 @@ export class Player {
 
   _setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
+    const book = this.book;
+
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: this.book.name,
+      title: book.name,
       artist: 'Audiobook',
     });
     navigator.mediaSession.setActionHandler('play', () => this.play());
@@ -135,6 +166,18 @@ export class Player {
     navigator.mediaSession.setActionHandler('seekforward', () => this.skip(30));
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime != null) this.seekTo(details.seekTime);
+    });
+
+    // Artwork arrives asynchronously; re-set metadata once we have it, but
+    // only if this is still the book being played (the user may have
+    // already switched to another one by the time this resolves).
+    getThumbnail(book.audioFileId).then((url) => {
+      if (!url || this.book !== book) return;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: book.name,
+        artist: 'Audiobook',
+        artwork: [{ src: url, sizes: '512x512', type: 'image/jpeg' }],
+      });
     });
   }
 }

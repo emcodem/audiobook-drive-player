@@ -2,6 +2,9 @@ import { initAuth, requestAccessToken } from './auth.js';
 import { openPicker } from './picker.js';
 import { getLibrary, removeBook } from './storage.js';
 import { Player } from './player.js';
+import { getThumbnail } from './thumbnails.js';
+
+const PLACEHOLDER_COVER = './icons/icon-192.png';
 
 const els = {
   loginBtn: document.getElementById('loginBtn'),
@@ -12,6 +15,7 @@ const els = {
   libraryList: document.getElementById('libraryList'),
   emptyLibraryMsg: document.getElementById('emptyLibraryMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
+  playerCover: document.getElementById('playerCover'),
   playerTitle: document.getElementById('playerTitle'),
   scrubber: document.getElementById('scrubber'),
   currentTimeLabel: document.getElementById('currentTimeLabel'),
@@ -20,12 +24,38 @@ const els = {
   skipBackBtn: document.getElementById('skipBackBtn'),
   skipFwdBtn: document.getElementById('skipFwdBtn'),
   speedSelect: document.getElementById('speedSelect'),
+  sleepSelect: document.getElementById('sleepSelect'),
+  sleepRemainingLabel: document.getElementById('sleepRemainingLabel'),
   chapterList: document.getElementById('chapterList'),
   noChaptersMsg: document.getElementById('noChaptersMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   audioEl: document.getElementById('audioEl'),
 };
+
+els.playerCover.addEventListener('error', () => {
+  els.playerCover.src = PLACEHOLDER_COVER;
+});
+
+let sleepDisplayInterval = null;
+
+function stopSleepDisplay() {
+  clearInterval(sleepDisplayInterval);
+  sleepDisplayInterval = null;
+  els.sleepRemainingLabel.textContent = '';
+}
+
+function startSleepDisplay() {
+  clearInterval(sleepDisplayInterval);
+  sleepDisplayInterval = setInterval(() => {
+    const remaining = player.getSleepRemainingSeconds();
+    if (remaining == null) {
+      stopSleepDisplay();
+      return;
+    }
+    els.sleepRemainingLabel.textContent = formatTime(remaining);
+  }, 1000);
+}
 
 let scrubbing = false;
 
@@ -54,6 +84,10 @@ const player = new Player({
   onEnded: () => {
     els.playPauseBtn.textContent = 'Play';
   },
+  onSleepTimerEnded: () => {
+    els.sleepSelect.value = '0';
+    stopSleepDisplay();
+  },
 });
 
 function renderChapters(chapters) {
@@ -81,6 +115,17 @@ function renderLibrary() {
     const li = document.createElement('li');
     li.className = 'library-item';
 
+    const cover = document.createElement('img');
+    cover.className = 'library-item-cover';
+    cover.src = PLACEHOLDER_COVER;
+    cover.alt = '';
+    cover.addEventListener('error', () => {
+      cover.src = PLACEHOLDER_COVER;
+    });
+    getThumbnail(book.audioFileId).then((url) => {
+      if (url) cover.src = url;
+    });
+
     const nameSpan = document.createElement('span');
     nameSpan.textContent = book.name;
     nameSpan.className = 'library-item-name';
@@ -95,6 +140,7 @@ function renderLibrary() {
       renderLibrary();
     });
 
+    li.appendChild(cover);
     li.appendChild(nameSpan);
     li.appendChild(removeBtn);
     els.libraryList.appendChild(li);
@@ -106,6 +152,14 @@ async function openPlayer(book) {
   els.playerView.classList.remove('hidden');
   els.playerTitle.textContent = book.name;
   els.playPauseBtn.textContent = 'Play';
+  els.sleepSelect.value = '0';
+  stopSleepDisplay();
+
+  els.playerCover.src = PLACEHOLDER_COVER;
+  getThumbnail(book.audioFileId).then((url) => {
+    if (url) els.playerCover.src = url;
+  });
+
   await player.load(book);
 }
 
@@ -122,6 +176,13 @@ els.audioEl.addEventListener('pause', () => (els.playPauseBtn.textContent = 'Pla
 els.skipBackBtn.addEventListener('click', () => player.skip(-30));
 els.skipFwdBtn.addEventListener('click', () => player.skip(30));
 els.speedSelect.addEventListener('change', (e) => player.setPlaybackRate(parseFloat(e.target.value)));
+
+els.sleepSelect.addEventListener('change', (e) => {
+  const minutes = parseInt(e.target.value, 10);
+  player.setSleepTimer(minutes);
+  if (minutes > 0) startSleepDisplay();
+  else stopSleepDisplay();
+});
 
 els.scrubber.addEventListener('input', () => {
   scrubbing = true;

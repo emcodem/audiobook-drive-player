@@ -1,6 +1,6 @@
 import { getStoredToken } from './js/token-store.js';
 
-const CACHE_NAME = 'adp-shell-v1';
+const CACHE_NAME = 'adp-shell-v2';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const SHELL_ASSETS = [
   './js/chapters.js',
   './js/player.js',
   './js/token-store.js',
+  './js/thumbnails.js',
   './js/app.js',
 ];
 
@@ -33,7 +34,12 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('message', (event) => {
