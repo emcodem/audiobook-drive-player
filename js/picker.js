@@ -33,7 +33,11 @@ async function buildPicker(mimeTypes, onPicked) {
 
   const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
     .setIncludeFolders(true)
-    .setMimeTypes(mimeTypes);
+    .setMimeTypes(mimeTypes)
+    // Grid/thumbnail mode (the default) barely shows any of the filename,
+    // which makes it hard to tell near-identical audiobook files apart on a
+    // narrow phone screen. List mode gives the name column far more room.
+    .setMode(google.picker.DocsViewMode.LIST);
 
   return new google.picker.PickerBuilder()
     .setOAuthToken(token)
