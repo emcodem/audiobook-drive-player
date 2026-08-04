@@ -1,4 +1,4 @@
-import { initAuth, requestAccessToken } from './auth.js';
+import { initAuth, requestAccessToken, onAuthReady } from './auth.js';
 import { openAudioPicker, openChaptersPicker } from './picker.js';
 import { getLibrary, removeBook } from './storage.js';
 import { Player } from './player.js';
@@ -195,6 +195,12 @@ els.scrubber.addEventListener('change', () => {
 
 els.addAudioBtn.addEventListener('click', () => openAudioPicker(() => renderLibrary()));
 els.addChaptersBtn.addEventListener('click', () => openChaptersPicker(() => renderLibrary()));
+els.loginBtn.disabled = true;
+els.loginBtn.textContent = 'Loading…';
+onAuthReady(() => {
+  els.loginBtn.disabled = false;
+  els.loginBtn.textContent = 'Sign in with Google';
+});
 els.loginBtn.addEventListener('click', () => requestAccessToken());
 els.keepListeningBtn.addEventListener('click', () => {
   requestAccessToken();

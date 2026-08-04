@@ -64,6 +64,12 @@ body {
   filter: brightness(1.15);
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
+
 .btn.ghost {
   background: transparent;
   border: 1px solid var(--surface-2);
