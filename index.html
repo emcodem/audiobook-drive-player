@@ -22,13 +22,15 @@
 
 <main id="libraryView" class="view hidden">
   <div class="library-toolbar">
-    <button id="addBooksBtn" class="btn">Add books from Drive</button>
+    <button id="addAudioBtn" class="btn">Add audiobook</button>
+    <button id="addChaptersBtn" class="btn ghost">Add chapters file</button>
   </div>
   <ul id="libraryList" class="library-list"></ul>
   <p id="emptyLibraryMsg" class="muted hidden">
-    No books yet — tap "Add books from Drive" and pick your audio files
-    (and their matching <code>.chapters.json</code> sidecars, if you generated
-    them) from Google Drive.
+    No books yet — tap "Add audiobook" and pick your audio file(s) from Google
+    Drive. If you generated <code>.chapters.json</code> sidecars with
+    <code>generate-chapters.ps1</code>, add each one afterwards with
+    "Add chapters file".
   </p>
 </main>
 

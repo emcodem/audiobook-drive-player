@@ -1,5 +1,5 @@
 import { initAuth, requestAccessToken } from './auth.js';
-import { openPicker } from './picker.js';
+import { openAudioPicker, openChaptersPicker } from './picker.js';
 import { getLibrary, removeBook } from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
@@ -11,7 +11,8 @@ const els = {
   userStatus: document.getElementById('userStatus'),
   libraryView: document.getElementById('libraryView'),
   playerView: document.getElementById('playerView'),
-  addBooksBtn: document.getElementById('addBooksBtn'),
+  addAudioBtn: document.getElementById('addAudioBtn'),
+  addChaptersBtn: document.getElementById('addChaptersBtn'),
   libraryList: document.getElementById('libraryList'),
   emptyLibraryMsg: document.getElementById('emptyLibraryMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
@@ -192,7 +193,8 @@ els.scrubber.addEventListener('change', () => {
   scrubbing = false;
 });
 
-els.addBooksBtn.addEventListener('click', () => openPicker(() => renderLibrary()));
+els.addAudioBtn.addEventListener('click', () => openAudioPicker(() => renderLibrary()));
+els.addChaptersBtn.addEventListener('click', () => openChaptersPicker(() => renderLibrary()));
 els.loginBtn.addEventListener('click', () => requestAccessToken());
 els.keepListeningBtn.addEventListener('click', () => {
   requestAccessToken();

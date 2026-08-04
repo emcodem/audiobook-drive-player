@@ -4,6 +4,8 @@ import { addBooks, getLibrary } from './storage.js';
 
 const AUDIO_EXT = /\.(m4a|m4b|mp3)$/i;
 const CHAPTERS_EXT = /\.chapters\.json$/i;
+const AUDIO_MIME_TYPES = 'audio/mp4,audio/x-m4a,audio/x-m4b,audio/mpeg,audio/mp3';
+const CHAPTERS_MIME_TYPE = 'application/json';
 
 let pickerApiLoaded = false;
 
@@ -21,54 +23,19 @@ function baseName(name) {
   return name.replace(AUDIO_EXT, '').replace(CHAPTERS_EXT, '');
 }
 
-// Pairs each audio file with a same-named "<name>.chapters.json" sidecar
-// (see scripts/generate-chapters.ps1). Normally both are multi-selected in
-// the same picker session, but multi-select can be fiddly on a touchscreen,
-// so a ".chapters.json" picked on its own in a later session instead
-// attaches to an existing library entry with a matching name.
-function pairDocs(docs) {
-  const audioFiles = docs.filter((d) => AUDIO_EXT.test(d.name));
-  const chapterFiles = docs.filter((d) => CHAPTERS_EXT.test(d.name));
-  const usedChapterIds = new Set();
-
-  const books = audioFiles.map((audio) => {
-    const base = baseName(audio.name);
-    const chaptersDoc = chapterFiles.find((c) => baseName(c.name) === base);
-    if (chaptersDoc) usedChapterIds.add(chaptersDoc.id);
-    return {
-      name: base,
-      audioFileId: audio.id,
-      audioMimeType: audio.mimeType,
-      chaptersFileId: chaptersDoc ? chaptersDoc.id : null,
-      addedAt: Date.now(),
-    };
-  });
-
-  const orphanChapterFiles = chapterFiles.filter((c) => !usedChapterIds.has(c.id));
-  const patches = [];
-  if (orphanChapterFiles.length) {
-    const lib = getLibrary();
-    for (const chaptersDoc of orphanChapterFiles) {
-      const base = baseName(chaptersDoc.name);
-      const existing = lib.find((b) => b.name === base);
-      if (existing) patches.push({ ...existing, chaptersFileId: chaptersDoc.id });
-    }
-  }
-
-  return [...books, ...patches];
-}
-
-export async function openPicker(onBooksAdded) {
+async function buildPicker(mimeTypes, onPicked) {
   await loadPickerApi();
   const token = getAccessToken();
   if (!token) {
     alert('Please sign in first.');
-    return;
+    return null;
   }
 
-  const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true);
+  const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setIncludeFolders(true)
+    .setMimeTypes(mimeTypes);
 
-  const picker = new google.picker.PickerBuilder()
+  return new google.picker.PickerBuilder()
     .setOAuthToken(token)
     .setDeveloperKey(CONFIG.API_KEY)
     .setAppId(CONFIG.APP_ID)
@@ -76,13 +43,61 @@ export async function openPicker(onBooksAdded) {
     .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
     .setCallback((data) => {
       if (data.action !== google.picker.Action.PICKED) return;
-      const books = pairDocs(data.docs || []);
-      if (books.length) {
-        const lib = addBooks(books);
-        onBooksAdded?.(lib);
-      }
+      onPicked(data.docs || []);
     })
     .build();
+}
 
-  picker.setVisible(true);
+// Filtered to audio files only, so the picker isn't cluttered with every
+// other file type in Drive. Each picked file becomes (or updates) a library
+// entry with no chapters yet.
+export async function openAudioPicker(onBooksAdded) {
+  const picker = await buildPicker(AUDIO_MIME_TYPES, (docs) => {
+    const audioFiles = docs.filter((d) => AUDIO_EXT.test(d.name));
+    if (!audioFiles.length) return;
+
+    const books = audioFiles.map((audio) => ({
+      name: baseName(audio.name),
+      audioFileId: audio.id,
+      audioMimeType: audio.mimeType,
+      chaptersFileId: null,
+      addedAt: Date.now(),
+    }));
+    const lib = addBooks(books);
+    onBooksAdded?.(lib);
+  });
+  picker?.setVisible(true);
+}
+
+// Filtered to JSON files only. Attaches each picked "<name>.chapters.json"
+// to an existing library entry with a matching name — since a lone JSON
+// file isn't playable on its own, it never creates a new book. Reports back
+// clearly when a file doesn't match anything, instead of silently no-oping.
+export async function openChaptersPicker(onBooksAdded) {
+  const picker = await buildPicker(CHAPTERS_MIME_TYPE, (docs) => {
+    const jsonFiles = docs.filter((d) => CHAPTERS_EXT.test(d.name));
+    if (!jsonFiles.length) {
+      alert('That doesn\'t look like a ".chapters.json" file (the kind generate-chapters.ps1 creates).');
+      return;
+    }
+
+    const lib = getLibrary();
+    const patches = [];
+    const unmatched = [];
+    for (const doc of jsonFiles) {
+      const base = baseName(doc.name);
+      const existing = lib.find((b) => b.name === base);
+      if (existing) patches.push({ ...existing, chaptersFileId: doc.id });
+      else unmatched.push(doc.name);
+    }
+
+    if (patches.length) onBooksAdded?.(addBooks(patches));
+    if (unmatched.length) {
+      alert(
+        `No matching audiobook found for: ${unmatched.join(', ')}\n\n` +
+          `Add the audiobook first with "Add audiobook", then attach its chapters file.`
+      );
+    }
+  });
+  picker?.setVisible(true);
 }

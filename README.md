@@ -10,15 +10,15 @@ of any kind.
 - **Auth**: you sign in with Google (Identity Services), granting the app the
   narrow `drive.file` permission — it can only see files *you* explicitly pick,
   not your whole Drive.
-- **Adding books**: tap "Add books from Drive" and pick your audio file(s)
-  (and their matching `.chapters.json` sidecar, if you made one — see below)
-  from the Google Picker. The picked file IDs are remembered in your browser,
-  so you only do this once per book. Ideally select the audio file and its
-  sidecar together (multi-select) in one picker session — but Google's Picker
-  multi-select can be fiddly to hit on a phone touchscreen, so it's fine to
-  pick the audio file alone first and add the matching `.chapters.json` in a
-  separate "Add books from Drive" pick later: the app attaches it to the
-  existing book automatically by matching the filename.
+- **Adding books**: tap "Add audiobook" and pick your audio file(s) from
+  Google Drive (the picker only shows audio files). If you generated
+  `.chapters.json` sidecars, tap "Add chapters file" and pick the matching
+  one (that picker only shows JSON files) — it attaches to the existing book
+  by matching filename. Two separate buttons/pickers on purpose: Google's
+  Picker multi-select doesn't work well as a touch gesture on a phone (tapping
+  a thumbnail just single-selects it, no checkbox), so picking the audio file
+  and its sidecar one at a time is the reliable path on Android. Picked file
+  IDs are remembered in your browser, so you only do this once per book.
 - **Playback/streaming**: a service worker intercepts the `<audio>` element's
   requests and proxies them to the Google Drive API with your access token
   attached, forwarding byte-range requests so seeking works without ever
