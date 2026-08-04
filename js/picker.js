@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { getAccessToken } from './auth.js';
-import { addBooks } from './storage.js';
+import { addBooks, getLibrary } from './storage.js';
 
 const AUDIO_EXT = /\.(m4a|m4b|mp3)$/i;
 const CHAPTERS_EXT = /\.chapters\.json$/i;
@@ -22,16 +22,19 @@ function baseName(name) {
 }
 
 // Pairs each audio file with a same-named "<name>.chapters.json" sidecar
-// picked in the same session (see scripts/generate-chapters.ps1). Both must
-// be selected together since drive.file only grants access to files the
-// user explicitly opens with the app.
+// (see scripts/generate-chapters.ps1). Normally both are multi-selected in
+// the same picker session, but multi-select can be fiddly on a touchscreen,
+// so a ".chapters.json" picked on its own in a later session instead
+// attaches to an existing library entry with a matching name.
 function pairDocs(docs) {
   const audioFiles = docs.filter((d) => AUDIO_EXT.test(d.name));
   const chapterFiles = docs.filter((d) => CHAPTERS_EXT.test(d.name));
+  const usedChapterIds = new Set();
 
-  return audioFiles.map((audio) => {
+  const books = audioFiles.map((audio) => {
     const base = baseName(audio.name);
     const chaptersDoc = chapterFiles.find((c) => baseName(c.name) === base);
+    if (chaptersDoc) usedChapterIds.add(chaptersDoc.id);
     return {
       name: base,
       audioFileId: audio.id,
@@ -40,6 +43,19 @@ function pairDocs(docs) {
       addedAt: Date.now(),
     };
   });
+
+  const orphanChapterFiles = chapterFiles.filter((c) => !usedChapterIds.has(c.id));
+  const patches = [];
+  if (orphanChapterFiles.length) {
+    const lib = getLibrary();
+    for (const chaptersDoc of orphanChapterFiles) {
+      const base = baseName(chaptersDoc.name);
+      const existing = lib.find((b) => b.name === base);
+      if (existing) patches.push({ ...existing, chaptersFileId: chaptersDoc.id });
+    }
+  }
+
+  return [...books, ...patches];
 }
 
 export async function openPicker(onBooksAdded) {

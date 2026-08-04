@@ -13,7 +13,12 @@ of any kind.
 - **Adding books**: tap "Add books from Drive" and pick your audio file(s)
   (and their matching `.chapters.json` sidecar, if you made one — see below)
   from the Google Picker. The picked file IDs are remembered in your browser,
-  so you only do this once per book.
+  so you only do this once per book. Ideally select the audio file and its
+  sidecar together (multi-select) in one picker session — but Google's Picker
+  multi-select can be fiddly to hit on a phone touchscreen, so it's fine to
+  pick the audio file alone first and add the matching `.chapters.json` in a
+  separate "Add books from Drive" pick later: the app attaches it to the
+  existing book automatically by matching the filename.
 - **Playback/streaming**: a service worker intercepts the `<audio>` element's
   requests and proxies them to the Google Drive API with your access token
   attached, forwarding byte-range requests so seeking works without ever
