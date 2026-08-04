@@ -1,43 +1,24 @@
 import { getStoredToken } from './js/token-store.js';
 
-const CACHE_NAME = 'adp-shell-v2';
-const SHELL_ASSETS = [
-  './',
-  './index.html',
-  './style.css',
-  './manifest.json',
-  './js/config.js',
-  './js/auth.js',
-  './js/picker.js',
-  './js/storage.js',
-  './js/chapters.js',
-  './js/player.js',
-  './js/token-store.js',
-  './js/thumbnails.js',
-  './js/app.js',
-];
-
-// In-memory cache of the current token + each file's total size (bytes),
-// so we don't have to hit Drive's metadata endpoint on every range request.
-// Reset whenever the service worker is restarted; re-populated from
-// IndexedDB (see token-store.js) or the next 'ADP_TOKEN' message.
+// This service worker exists ONLY to proxy Google Drive's byte-range media
+// requests (handleDriveAudio below) with the user's OAuth token attached —
+// it does not cache the app shell. Every other request is left alone
+// (no respondWith call) and goes straight to the network, so app updates
+// are never masked by a stale cache.
 let memoryToken = null;
 const sizeCache = new Map();
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(SHELL_ASSETS))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener('install', () => {
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
+  // Remove any app-shell caches created by older versions of this worker
+  // (earlier builds of this app cached the app shell; this clears that out).
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -52,16 +33,10 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   const match = url.pathname.match(/\/drive-audio\/([^/]+)$/);
+  if (!match) return;
 
-  if (match) {
-    const mime = url.searchParams.get('mime') || 'audio/mp4';
-    event.respondWith(handleDriveAudio(match[1], event.request, mime));
-    return;
-  }
-
-  if (event.request.method === 'GET' && url.origin === self.location.origin) {
-    event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
-  }
+  const mime = url.searchParams.get('mime') || 'audio/mp4';
+  event.respondWith(handleDriveAudio(match[1], event.request, mime));
 });
 
 async function getToken() {

@@ -220,5 +220,8 @@ function handleTokenRefreshed() {
 initAuth({ onTokenChange: handleTokenRefreshed });
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./service-worker.js', { type: 'module' });
+  // updateViaCache: 'none' makes the browser always re-fetch this file (and
+  // its statically imported modules) from the network when checking for
+  // updates, instead of potentially reusing an HTTP-cached copy.
+  navigator.serviceWorker.register('./service-worker.js', { type: 'module', updateViaCache: 'none' });
 }
