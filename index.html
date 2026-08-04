@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Audiobook Drive Player</title>
+<meta name="theme-color" content="#14151a">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Audiobook Drive Player</h1>
+  <div id="authArea">
+    <button id="loginBtn" class="btn">Sign in with Google</button>
+    <span id="userStatus" class="hidden muted"></span>
+  </div>
+</header>
+
+<main id="libraryView" class="view hidden">
+  <div class="library-toolbar">
+    <button id="addBooksBtn" class="btn">Add books from Drive</button>
+  </div>
+  <ul id="libraryList" class="library-list"></ul>
+  <p id="emptyLibraryMsg" class="muted hidden">
+    No books yet — tap "Add books from Drive" and pick your audio files
+    (and their matching <code>.chapters.json</code> sidecars, if you generated
+    them) from Google Drive.
+  </p>
+</main>
+
+<main id="playerView" class="view hidden">
+  <button id="backToLibraryBtn" class="btn ghost">&larr; Library</button>
+  <h2 id="playerTitle"></h2>
+
+  <div class="scrubber-row">
+    <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
+    <div class="time-row">
+      <span id="currentTimeLabel">0:00</span>
+      <span id="durationLabel">0:00</span>
+    </div>
+  </div>
+
+  <div class="controls-row">
+    <button id="skipBackBtn" class="btn round" aria-label="Back 30 seconds">-30s</button>
+    <button id="playPauseBtn" class="btn round primary">Play</button>
+    <button id="skipFwdBtn" class="btn round" aria-label="Forward 30 seconds">+30s</button>
+  </div>
+
+  <div class="speed-row">
+    <label for="speedSelect">Speed</label>
+    <select id="speedSelect">
+      <option value="1">1.0x</option>
+      <option value="1.25">1.25x</option>
+      <option value="1.5">1.5x</option>
+      <option value="1.75">1.75x</option>
+      <option value="2">2.0x</option>
+    </select>
+  </div>
+
+  <section id="chaptersSection">
+    <h3>Chapters</h3>
+    <ul id="chapterList" class="chapter-list"></ul>
+    <p id="noChaptersMsg" class="muted hidden">
+      No chapter data for this book — your playback position is still remembered.
+    </p>
+  </section>
+</main>
+
+<div id="tokenBanner" class="banner hidden">
+  <span>Your Google session is about to expire.</span>
+  <button id="keepListeningBtn" class="btn">Tap to keep listening</button>
+</div>
+
+<audio id="audioEl" preload="metadata"></audio>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
