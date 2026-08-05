@@ -46,3 +46,27 @@ export function setPosition(fileId, seconds) {
     JSON.stringify({ position: seconds, updatedAt: Date.now() })
   );
 }
+
+const HISTORY_LIMIT = 200;
+
+function historyKey(fileId) {
+  return `adp.history.${fileId}`;
+}
+
+// Reverse-chronological is left to callers (rendering); this returns entries
+// in the order they were listened to (oldest first).
+export function getHistory(fileId) {
+  try {
+    return JSON.parse(localStorage.getItem(historyKey(fileId))) || [];
+  } catch {
+    return [];
+  }
+}
+
+export function addHistoryEntry(fileId, entry) {
+  const history = getHistory(fileId);
+  history.push(entry);
+  if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
+  localStorage.setItem(historyKey(fileId), JSON.stringify(history));
+  return history;
+}

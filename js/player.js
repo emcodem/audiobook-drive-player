@@ -1,11 +1,11 @@
-import { getPosition, setPosition } from './storage.js';
+import { getPosition, setPosition, addHistoryEntry } from './storage.js';
 import { fetchChapters } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
 
 const SAVE_INTERVAL_MS = 8000;
 
 export class Player {
-  constructor({ audioEl, onChaptersLoaded, onTimeUpdate, onEnded, onSleepTimerEnded }) {
+  constructor({ audioEl, onChaptersLoaded, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
     this.audioEl = audioEl;
     this.book = null;
     this.chapters = [];
@@ -13,9 +13,11 @@ export class Player {
     this.onTimeUpdate = onTimeUpdate || (() => {});
     this.onEnded = onEnded || (() => {});
     this.onSleepTimerEnded = onSleepTimerEnded || (() => {});
+    this.onHistoryUpdated = onHistoryUpdated || (() => {});
     this._lastSaveAt = 0;
     this._sleepTimeoutId = null;
     this._sleepDeadline = null;
+    this._lastHistoryChapterIndex = -1;
 
     audioEl.addEventListener('timeupdate', () => this._handleTimeUpdate());
     audioEl.addEventListener('pause', () => this._savePosition());
@@ -32,6 +34,7 @@ export class Player {
   async load(book) {
     this.book = book;
     this.chapters = [];
+    this._lastHistoryChapterIndex = -1;
     this.setSleepTimer(0);
 
     const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
@@ -132,11 +135,29 @@ export class Player {
 
   _handleTimeUpdate() {
     this.onTimeUpdate(this.audioEl.currentTime, this.audioEl.duration);
+    this._trackChapterHistory();
     const now = Date.now();
     if (now - this._lastSaveAt > SAVE_INTERVAL_MS) {
       this._savePosition();
       this._lastSaveAt = now;
     }
+  }
+
+  // Records a history entry whenever playback enters a new chapter, whether
+  // by natural advance, a chapter-list tap, or scrubbing — anything that
+  // counts as "starting to listen to" that chapter.
+  _trackChapterHistory() {
+    if (!this.chapters.length) return;
+    const idx = this.currentChapterIndex();
+    if (idx < 0 || idx === this._lastHistoryChapterIndex) return;
+    this._lastHistoryChapterIndex = idx;
+    const chapter = this.chapters[idx];
+    addHistoryEntry(this.book.audioFileId, {
+      chapterIndex: idx,
+      title: chapter.title || `Chapter ${idx + 1}`,
+      at: Date.now(),
+    });
+    this.onHistoryUpdated();
   }
 
   _savePosition() {

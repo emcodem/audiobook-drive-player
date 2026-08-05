@@ -82,11 +82,19 @@
       No chapter data for this book — your playback position is still remembered.
     </p>
   </section>
+
+  <section id="historySection">
+    <h3>Listening history</h3>
+    <ul id="historyList" class="chapter-list"></ul>
+    <p id="emptyHistoryMsg" class="muted hidden">No chapters listened to yet.</p>
+  </section>
 </main>
 
-<div id="tokenBanner" class="banner hidden">
-  <span>Your Google session is about to expire.</span>
-  <button id="keepListeningBtn" class="btn">Tap to keep listening</button>
+<div id="tokenBanner" class="token-overlay hidden">
+  <div class="token-overlay-box">
+    <p>Your Google session is about to expire.</p>
+    <button id="keepListeningBtn" class="btn primary large">Tap to keep listening</button>
+  </div>
 </div>
 
 <audio id="audioEl" preload="metadata"></audio>

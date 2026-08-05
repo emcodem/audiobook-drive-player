@@ -1,6 +1,6 @@
 import { initAuth, requestAccessToken, onAuthReady } from './auth.js';
 import { openAudioPicker, openChaptersPicker } from './picker.js';
-import { getLibrary, removeBook } from './storage.js';
+import { getLibrary, removeBook, getHistory } from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
 
@@ -29,6 +29,8 @@ const els = {
   sleepRemainingLabel: document.getElementById('sleepRemainingLabel'),
   chapterList: document.getElementById('chapterList'),
   noChaptersMsg: document.getElementById('noChaptersMsg'),
+  historyList: document.getElementById('historyList'),
+  emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   audioEl: document.getElementById('audioEl'),
@@ -70,16 +72,48 @@ function formatTime(sec) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-const player = new Player({
-  audioEl: els.audioEl,
-  onChaptersLoaded: renderChapters,
-  onTimeUpdate: (current, duration) => {
-    if (!scrubbing) {
-      els.scrubber.max = String(Math.floor(duration || 0));
-      els.scrubber.value = String(Math.floor(current || 0));
-    }
+// When the book has chapters, the scrubber is scoped to the CURRENT chapter
+// only (min/max = chapter start/end) rather than the whole file — dragging
+// it can only move within the chapter you're in. Falls back to whole-file
+// bounds for books with no chapter data.
+function updateScrubber(current, duration) {
+  const chapters = player.chapters;
+  let rangeStart = 0;
+  let rangeEnd = duration || 0;
+
+  if (chapters.length) {
+    const idx = player.currentChapterIndex();
+    const chapter = chapters[idx] ?? chapters[0];
+    rangeStart = chapter.start;
+    rangeEnd = chapter.end != null ? chapter.end : duration || chapter.start;
+  }
+
+  if (!scrubbing) {
+    els.scrubber.min = String(Math.floor(rangeStart));
+    els.scrubber.max = String(Math.max(Math.ceil(rangeEnd), Math.floor(rangeStart) + 1));
+    els.scrubber.value = String(Math.floor(current));
+  }
+
+  if (chapters.length) {
+    els.currentTimeLabel.textContent = formatTime(Math.max(0, current - rangeStart));
+    els.durationLabel.textContent = formatTime(Math.max(0, rangeEnd - rangeStart));
+  } else {
     els.currentTimeLabel.textContent = formatTime(current);
     els.durationLabel.textContent = formatTime(duration);
+  }
+}
+
+let currentBook = null;
+
+const player = new Player({
+  audioEl: els.audioEl,
+  onChaptersLoaded: (chapters) => {
+    renderChapters(chapters);
+    updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
+    renderHistory();
+  },
+  onTimeUpdate: (current, duration) => {
+    updateScrubber(current, duration);
     highlightCurrentChapter();
   },
   onEnded: () => {
@@ -89,6 +123,11 @@ const player = new Player({
     els.sleepSelect.value = '0';
     stopSleepDisplay();
   },
+  onHistoryUpdated: () => renderHistory(),
+});
+
+els.audioEl.addEventListener('loadedmetadata', () => {
+  updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
 });
 
 function renderChapters(chapters) {
@@ -105,6 +144,34 @@ function renderChapters(chapters) {
 function highlightCurrentChapter() {
   const idx = player.currentChapterIndex();
   [...els.chapterList.children].forEach((li, i) => li.classList.toggle('active', i === idx));
+}
+
+function formatHistoryTimestamp(ms) {
+  const date = new Date(ms);
+  const sameDay = new Date().toDateString() === date.toDateString();
+  return sameDay
+    ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function renderHistory() {
+  if (!currentBook) return;
+  const history = getHistory(currentBook.audioFileId);
+  els.historyList.innerHTML = '';
+  els.emptyHistoryMsg.classList.toggle('hidden', history.length > 0);
+
+  // Most recently listened first.
+  [...history].reverse().forEach((entry) => {
+    const li = document.createElement('li');
+    const titleText = document.createTextNode(entry.title + ' ');
+    const time = document.createElement('span');
+    time.className = 'history-time';
+    time.textContent = formatHistoryTimestamp(entry.at);
+    li.appendChild(titleText);
+    li.appendChild(time);
+    li.addEventListener('click', () => player.jumpToChapter(entry.chapterIndex));
+    els.historyList.appendChild(li);
+  });
 }
 
 function renderLibrary() {
@@ -149,12 +216,14 @@ function renderLibrary() {
 }
 
 async function openPlayer(book) {
+  currentBook = book;
   els.libraryView.classList.add('hidden');
   els.playerView.classList.remove('hidden');
   els.playerTitle.textContent = book.name;
   els.playPauseBtn.textContent = 'Play';
   els.sleepSelect.value = '0';
   stopSleepDisplay();
+  renderHistory();
 
   els.playerCover.src = PLACEHOLDER_COVER;
   getThumbnail(book.audioFileId).then((url) => {
