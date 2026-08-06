@@ -105,3 +105,35 @@ export async function openChaptersPicker(onBooksAdded) {
   });
   picker?.setVisible(true);
 }
+
+// Picks a whole Drive folder rather than individual files. Drive grants
+// access to a folder's contents (not just the folder object) when it's
+// chosen this way under the drive.file scope, so this only needs to happen
+// once, ever — afterwards the app lists the folder's contents itself
+// (see clips.js), picking up new clips with no further user action.
+export async function openClipsFolderPicker(onFolderPicked) {
+  await loadPickerApi();
+  const token = getAccessToken();
+  if (!token) {
+    alert('Please sign in first.');
+    return;
+  }
+
+  const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+    .setIncludeFolders(true)
+    .setSelectFolderEnabled(true)
+    .setMode(google.picker.DocsViewMode.LIST);
+
+  const picker = new google.picker.PickerBuilder()
+    .setOAuthToken(token)
+    .setDeveloperKey(CONFIG.API_KEY)
+    .setAppId(CONFIG.APP_ID)
+    .addView(view)
+    .setCallback((data) => {
+      if (data.action !== google.picker.Action.PICKED) return;
+      const folder = (data.docs || [])[0];
+      if (folder) onFolderPicked(folder.id, folder.name);
+    })
+    .build();
+  picker.setVisible(true);
+}

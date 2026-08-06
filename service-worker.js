@@ -1,7 +1,7 @@
 import { getStoredToken } from './js/token-store.js';
 
 // This service worker exists ONLY to proxy Google Drive's byte-range media
-// requests (handleDriveAudio below) with the user's OAuth token attached —
+// requests (handleDriveMedia below) with the user's OAuth token attached —
 // it does not cache the app shell. Every other request is left alone
 // (no respondWith call) and goes straight to the network, so app updates
 // are never masked by a stale cache.
@@ -32,11 +32,11 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  const match = url.pathname.match(/\/drive-audio\/([^/]+)$/);
+  const match = url.pathname.match(/\/drive-(?:audio|video)\/([^/]+)$/);
   if (!match) return;
 
   const mime = url.searchParams.get('mime') || 'audio/mp4';
-  event.respondWith(handleDriveAudio(match[1], event.request, mime));
+  event.respondWith(handleDriveMedia(match[1], event.request, mime));
 });
 
 async function getToken() {
@@ -71,13 +71,14 @@ function parseRange(rangeHeader, total) {
   return { start, end };
 }
 
-// The <audio> element's own Range requests drive seeking; we forward them to
-// Drive and hand back the exact same byte range. We compute Content-Range
-// from a size we fetched ourselves rather than trusting Drive's response
-// headers, since CORS may not expose Content-Range/Content-Length on every
-// response — but the response body itself is always readable once the
-// preflight succeeds.
-async function handleDriveAudio(fileId, request, mime) {
+// Shared by both /drive-audio/ (the <audio> element) and /drive-video/ (the
+// optional clip <video> element) — same proxying need either way: the
+// element's own Range requests drive seeking, we forward them to Drive and
+// hand back the exact same byte range. We compute Content-Range from a size
+// we fetched ourselves rather than trusting Drive's response headers, since
+// CORS may not expose Content-Range/Content-Length on every response — but
+// the response body itself is always readable once the preflight succeeds.
+async function handleDriveMedia(fileId, request, mime) {
   const token = await getToken();
   if (!token) return new Response('No access token available', { status: 401 });
 

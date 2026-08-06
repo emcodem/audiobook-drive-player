@@ -24,6 +24,7 @@
   <div class="library-toolbar">
     <button id="addAudioBtn" class="btn">Add audiobook</button>
     <button id="addChaptersBtn" class="btn ghost">Add chapters file</button>
+    <button id="addClipsBtn" class="btn ghost">Add clips folder</button>
   </div>
   <ul id="libraryList" class="library-list"></ul>
   <p id="emptyLibraryMsg" class="muted hidden">
@@ -36,7 +37,11 @@
 
 <main id="playerView" class="view hidden">
   <button id="backToLibraryBtn" class="btn ghost">&larr; Library</button>
-  <img id="playerCover" class="player-cover" src="./icons/icon-192.png" alt="">
+  <div class="clip-wrap">
+    <img id="playerCover" class="player-cover" src="./icons/icon-192.png" alt="">
+    <video id="clipVideo" class="player-clip hidden" muted loop playsinline></video>
+  </div>
+  <button id="clipToggleBtn" class="btn ghost small clip-toggle hidden">Show clip</button>
   <h2 id="playerTitle"></h2>
 
   <div class="scrubber-row">

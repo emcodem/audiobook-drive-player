@@ -1,8 +1,17 @@
 import { initAuth, requestAccessToken, onAuthReady } from './auth.js';
-import { openAudioPicker, openChaptersPicker } from './picker.js';
-import { getLibrary, removeBook, getHistory } from './storage.js';
+import { openAudioPicker, openChaptersPicker, openClipsFolderPicker } from './picker.js';
+import {
+  getLibrary,
+  removeBook,
+  getHistory,
+  getClipsFolderId,
+  setClipsFolderId,
+  getShowClipsPref,
+  setShowClipsPref,
+} from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
+import { fetchClipsMap, chapterNumberFromTitle } from './clips.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
@@ -13,6 +22,7 @@ const els = {
   playerView: document.getElementById('playerView'),
   addAudioBtn: document.getElementById('addAudioBtn'),
   addChaptersBtn: document.getElementById('addChaptersBtn'),
+  addClipsBtn: document.getElementById('addClipsBtn'),
   libraryList: document.getElementById('libraryList'),
   emptyLibraryMsg: document.getElementById('emptyLibraryMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
@@ -34,6 +44,8 @@ const els = {
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   audioEl: document.getElementById('audioEl'),
+  clipVideo: document.getElementById('clipVideo'),
+  clipToggleBtn: document.getElementById('clipToggleBtn'),
 };
 
 els.playerCover.addEventListener('error', () => {
@@ -104,6 +116,10 @@ function updateScrubber(current, duration) {
 }
 
 let currentBook = null;
+let clipsMap = {}; // chapter number -> Drive file id, from clips.js
+let showClips = getShowClipsPref();
+let currentClipFileId = null;
+let lastDisplayedChapterIdx = -2; // distinct from currentChapterIndex()'s -1 ("no chapter yet")
 
 const player = new Player({
   audioEl: els.audioEl,
@@ -111,10 +127,12 @@ const player = new Player({
     renderChapters(chapters);
     updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
     renderHistory();
+    lastDisplayedChapterIdx = -2;
+    updateNowPlayingChapter();
   },
   onTimeUpdate: (current, duration) => {
     updateScrubber(current, duration);
-    highlightCurrentChapter();
+    updateNowPlayingChapter();
   },
   onEnded: () => {
     els.playPauseBtn.textContent = 'Play';
@@ -125,6 +143,56 @@ const player = new Player({
   },
   onHistoryUpdated: () => renderHistory(),
 });
+
+// Chapter title (e.g. "(90) Erfahrungen Sammeln [German]") replaces the
+// filename/book-range title while a chapter is playing — falls back to the
+// book name before chapters load or for books with no chapter data.
+function updateNowPlayingChapter() {
+  const idx = player.currentChapterIndex();
+  const chapter = idx >= 0 ? player.chapters[idx] : null;
+  els.playerTitle.textContent = chapter ? (chapter.title || `Chapter ${idx + 1}`) : (currentBook?.name || '');
+
+  if (idx === lastDisplayedChapterIdx) return;
+  lastDisplayedChapterIdx = idx;
+  highlightCurrentChapter();
+  updateClipForChapter(chapter);
+}
+
+function updateClipForChapter(chapter) {
+  const num = chapterNumberFromTitle(chapter?.title);
+  const fileId = num != null ? clipsMap[num] : null;
+  currentClipFileId = fileId || null;
+
+  els.clipToggleBtn.classList.toggle('hidden', !currentClipFileId);
+  if (currentClipFileId && showClips) {
+    showClip(currentClipFileId);
+  } else {
+    hideClip();
+  }
+}
+
+function showClip(fileId) {
+  els.clipVideo.src = `./drive-video/${fileId}?mime=video/mp4`;
+  els.clipVideo.play().catch(() => {});
+  els.clipVideo.classList.remove('hidden');
+  els.playerCover.classList.add('hidden');
+  els.clipToggleBtn.textContent = 'Hide clip';
+}
+
+function hideClip() {
+  els.clipVideo.pause();
+  els.clipVideo.removeAttribute('src');
+  els.clipVideo.classList.add('hidden');
+  els.playerCover.classList.remove('hidden');
+  els.clipToggleBtn.textContent = 'Show clip';
+}
+
+async function refreshClipsMap() {
+  clipsMap = await fetchClipsMap(getClipsFolderId());
+  if (!els.playerView.classList.contains('hidden')) {
+    updateClipForChapter(player.currentChapterIndex() >= 0 ? player.chapters[player.currentChapterIndex()] : null);
+  }
+}
 
 els.audioEl.addEventListener('loadedmetadata', () => {
   updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
@@ -224,6 +292,9 @@ async function openPlayer(book) {
   els.sleepSelect.value = '0';
   stopSleepDisplay();
   renderHistory();
+  lastDisplayedChapterIdx = -2;
+  hideClip();
+  els.clipToggleBtn.classList.add('hidden');
 
   els.playerCover.src = PLACEHOLDER_COVER;
   getThumbnail(book.audioFileId).then((url) => {
@@ -264,6 +335,18 @@ els.scrubber.addEventListener('change', () => {
 
 els.addAudioBtn.addEventListener('click', () => openAudioPicker(() => renderLibrary()));
 els.addChaptersBtn.addEventListener('click', () => openChaptersPicker(() => renderLibrary()));
+els.addClipsBtn.addEventListener('click', () => {
+  openClipsFolderPicker((folderId) => {
+    setClipsFolderId(folderId);
+    refreshClipsMap();
+  });
+});
+els.clipToggleBtn.addEventListener('click', () => {
+  showClips = !showClips;
+  setShowClipsPref(showClips);
+  if (currentClipFileId && showClips) showClip(currentClipFileId);
+  else hideClip();
+});
 els.loginBtn.disabled = true;
 els.loginBtn.textContent = 'Loading…';
 onAuthReady(() => {
@@ -286,6 +369,7 @@ function handleTokenRefreshed() {
   els.userStatus.textContent = 'Signed in';
   els.libraryView.classList.remove('hidden');
   renderLibrary();
+  refreshClipsMap();
 
   if (!els.playerView.classList.contains('hidden')) {
     player.reloadAfterAuth();

@@ -131,20 +131,40 @@ body {
   flex: 1;
 }
 
-.player-cover {
+.clip-wrap {
+  position: relative;
+  width: 10rem;
+  max-width: 60vw;
+  margin: 1rem auto 0;
+}
+
+.player-cover,
+.player-clip {
   display: block;
   width: 10rem;
   height: 10rem;
   max-width: 60vw;
   max-height: 60vw;
-  margin: 1rem auto 0;
   border-radius: 0.75rem;
   object-fit: cover;
   background: var(--surface-2);
 }
 
+.player-clip {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.clip-toggle {
+  display: block;
+  margin: 0.6rem auto 0;
+}
+
 #playerTitle {
-  font-size: 1.15rem;
+  font-size: 1.4rem;
+  font-weight: 600;
   margin: 1rem 0;
   text-align: center;
 }

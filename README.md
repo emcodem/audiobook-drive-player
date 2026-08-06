@@ -29,6 +29,10 @@ of any kind.
   just no chapter list — resume-by-position still works.
 - **Resume position**: saved to `localStorage` on your device, keyed per
   Drive file, updated continuously during playback.
+- **Video clips (optional)**: if a chapter has a matching `chNNN_final.mp4`
+  clip in a Drive folder you've pointed the app at, a "Show clip" button
+  appears during that chapter — see "Optional: video clips per chapter"
+  below.
 
 ### The one real limitation
 
@@ -124,6 +128,26 @@ then on.
 
 Open the app, tap "Add books from Drive" again, and pick the new audio file
 + its `.chapters.json` together. Previously added books stay in your library.
+
+## Optional: video clips per chapter
+
+If you have a generated video clip for a chapter (e.g. from ComfyUI), name it
+`ch<N>_final.mp4` where `<N>` is the chapter's number as it appears in that
+chapter's title in parentheses — e.g. chapter title `"(90) ..."` pairs with
+`ch090_final.mp4` (leading zeros optional). This number is global across all
+your book files, not per-book, so every clip lives in one shared Drive
+folder regardless of which book its chapter belongs to.
+
+1. Upload your clips to a folder in Drive (any folder, any name).
+2. In the app, tap "Add clips folder" and pick it — **once, ever**. Picking a
+   folder (rather than individual files) grants the app access to list that
+   folder's contents itself from then on, so clips you add to it later (as
+   you render more) show up automatically on the next app load — no need to
+   re-pick.
+3. While playing a chapter that has a matching clip, a "Show clip" button
+   appears above the chapter title. It plays muted and looped as a visual
+   alongside the audio narration — it's not a replacement for the audio
+   track. Your on/off preference is remembered for next time.
 
 ## Notes / known limitations
 

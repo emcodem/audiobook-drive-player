@@ -1,5 +1,7 @@
 // localStorage-backed library list and per-book resume position.
 const LIBRARY_KEY = 'adp.library.v1';
+const CLIPS_FOLDER_KEY = 'adp.clipsFolder.v1';
+const SHOW_CLIPS_KEY = 'adp.showClips.v1';
 
 export function getLibrary() {
   try {
@@ -69,4 +71,23 @@ export function addHistoryEntry(fileId, entry) {
   if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
   localStorage.setItem(historyKey(fileId), JSON.stringify(history));
   return history;
+}
+
+// A single Drive folder holding "chNNN_final.mp4" video clips, shared across
+// every book (clip filenames carry a global chapter number, not a book
+// reference) — picked once, ever.
+export function getClipsFolderId() {
+  return localStorage.getItem(CLIPS_FOLDER_KEY) || null;
+}
+
+export function setClipsFolderId(folderId) {
+  localStorage.setItem(CLIPS_FOLDER_KEY, folderId);
+}
+
+export function getShowClipsPref() {
+  return localStorage.getItem(SHOW_CLIPS_KEY) === '1';
+}
+
+export function setShowClipsPref(enabled) {
+  localStorage.setItem(SHOW_CLIPS_KEY, enabled ? '1' : '0');
 }
