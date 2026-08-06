@@ -1,5 +1,3 @@
-import { getAccessToken } from './auth.js';
-
 // Matches the ComfyUI output naming convention, e.g. "ch090_final.mp4".
 const CLIP_FILENAME_RE = /^ch0*(\d+)_final\.mp4$/i;
 
@@ -12,37 +10,26 @@ export function chapterNumberFromTitle(title) {
   return m ? parseInt(m[1], 10) : null;
 }
 
-// Lists every "chNNN_final.mp4" directly inside the given Drive folder and
-// returns a { chapterNumber: fileId } map. Meant to be re-run on every app
-// load (not just once, at folder-pick time) so clips added to the folder
-// later — as ComfyUI renders more of them — show up automatically with no
-// further picking.
-export async function fetchClipsMap(folderId) {
+// Picks every "chNNN_final.mp4" out of an already-fetched file list (see
+// drive.js's listFilesRecursive) and returns a { chapterNumber: fileId }
+// map. Takes the list rather than fetching it itself so the caller can
+// share one Drive listing between this and syncBooksFolder instead of
+// scanning the same folder twice.
+export function buildClipsMap(files) {
   const map = {};
-  if (!folderId) return map;
-  const token = getAccessToken();
-  if (!token) return map;
-
-  try {
-    let pageToken = '';
-    do {
-      const url = new URL('https://www.googleapis.com/drive/v3/files');
-      url.searchParams.set('q', `'${folderId}' in parents and trashed = false`);
-      url.searchParams.set('fields', 'nextPageToken, files(id, name)');
-      url.searchParams.set('pageSize', '1000');
-      if (pageToken) url.searchParams.set('pageToken', pageToken);
-
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) break;
-      const data = await res.json();
-      for (const file of data.files || []) {
-        const m = CLIP_FILENAME_RE.exec(file.name);
-        if (m) map[parseInt(m[1], 10)] = file.id;
-      }
-      pageToken = data.nextPageToken || '';
-    } while (pageToken);
-  } catch {
-    // Leave whatever was found before the failure; clips are optional.
+  for (const file of files) {
+    const m = CLIP_FILENAME_RE.exec(file.name);
+    if (m) map[parseInt(m[1], 10)] = file.id;
   }
   return map;
+}
+
+// Files that look like they were meant to be a clip (contain "final" or end
+// in .mp4) but didn't match CLIP_FILENAME_RE — surfaced so a naming
+// mismatch is visible instead of just silently showing up as "0 found".
+export function findClipNearMisses(files) {
+  return files
+    .filter((f) => !CLIP_FILENAME_RE.test(f.name))
+    .filter((f) => /final/i.test(f.name) || /\.mp4$/i.test(f.name))
+    .map((f) => f.name);
 }

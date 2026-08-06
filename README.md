@@ -10,15 +10,16 @@ of any kind.
 - **Auth**: you sign in with Google (Identity Services), granting the app the
   narrow `drive.file` permission — it can only see files *you* explicitly pick,
   not your whole Drive.
-- **Adding books**: tap "Add audiobook" and pick your audio file(s) from
-  Google Drive (the picker only shows audio files). If you generated
-  `.chapters.json` sidecars, tap "Add chapters file" and pick the matching
-  one (that picker only shows JSON files) — it attaches to the existing book
-  by matching filename. Two separate buttons/pickers on purpose: Google's
-  Picker multi-select doesn't work well as a touch gesture on a phone (tapping
-  a thumbnail just single-selects it, no checkbox), so picking the audio file
-  and its sidecar one at a time is the reliable path on Android. Picked file
-  IDs are remembered in your browser, so you only do this once per book.
+- **Adding books**: tap "Add library folder" once and pick the Drive folder
+  where you keep your audio files, their `.chapters.json` sidecars, and any
+  `chNNN_final.mp4` video clips — this tells the app where to look. The app
+  then finds every audio file there, pairs it with its sidecar by filename,
+  and matches any clips to their chapter (see "Optional: video clips per
+  chapter" below). **Important `drive.file` caveat**: picking the folder
+  does *not* grant ongoing access to files you add to it later — Drive only
+  lets the app see files it has explicitly been shown. Whenever you upload
+  new books, sidecars, or clips, tap "Grant access to new files" and select
+  them (works across mixed file types in one go) before they'll show up.
 - **Playback/streaming**: a service worker intercepts the `<audio>` element's
   requests and proxies them to the Google Drive API with your access token
   attached, forwarding byte-range requests so seeking works without ever
@@ -30,9 +31,9 @@ of any kind.
 - **Resume position**: saved to `localStorage` on your device, keyed per
   Drive file, updated continuously during playback.
 - **Video clips (optional)**: if a chapter has a matching `chNNN_final.mp4`
-  clip in a Drive folder you've pointed the app at, a "Show clip" button
-  appears during that chapter — see "Optional: video clips per chapter"
-  below.
+  clip in your library folder, it auto-plays (muted, looped) during that
+  chapter, with a small "🎬 Clip" badge as an indicator — see "Optional:
+  video clips per chapter" below.
 
 ### The one real limitation
 
@@ -100,8 +101,10 @@ list for that book.
 
 ## 4. Upload to Google Drive
 
-Upload both the audio files and their `.chapters.json` siblings to a folder
-in your Google Drive (any folder — the app doesn't require a specific one).
+Upload the audio files, their `.chapters.json` siblings, and (optionally)
+any `chNNN_final.mp4` clips to **one folder** in your Google Drive (any
+folder — the app doesn't require a specific one, but everything needs to be
+in the same one since you only pick it once).
 
 ## 5. Deploy
 
@@ -126,8 +129,11 @@ then on.
 
 ## 7. Adding more books later
 
-Open the app, tap "Add books from Drive" again, and pick the new audio file
-+ its `.chapters.json` together. Previously added books stay in your library.
+Upload the new audio file and its `.chapters.json` to the same Drive folder
+you picked in step 4, then in the app tap **"Grant access to new files"**
+and select them. This step is required every time — Drive only shows the
+app files it's explicitly been shown, so a folder pick alone doesn't cover
+things uploaded afterward (see the `drive.file` caveat above).
 
 ## Optional: video clips per chapter
 
@@ -135,19 +141,14 @@ If you have a generated video clip for a chapter (e.g. from ComfyUI), name it
 `ch<N>_final.mp4` where `<N>` is the chapter's number as it appears in that
 chapter's title in parentheses — e.g. chapter title `"(90) ..."` pairs with
 `ch090_final.mp4` (leading zeros optional). This number is global across all
-your book files, not per-book, so every clip lives in one shared Drive
-folder regardless of which book its chapter belongs to.
+your book files, not per-book, so a clip's chapter number is what matches it
+up, not which book file it happens to be near.
 
-1. Upload your clips to a folder in Drive (any folder, any name).
-2. In the app, tap "Add clips folder" and pick it — **once, ever**. Picking a
-   folder (rather than individual files) grants the app access to list that
-   folder's contents itself from then on, so clips you add to it later (as
-   you render more) show up automatically on the next app load — no need to
-   re-pick.
-3. While playing a chapter that has a matching clip, a "Show clip" button
-   appears above the chapter title. It plays muted and looped as a visual
-   alongside the audio narration — it's not a replacement for the audio
-   track. Your on/off preference is remembered for next time.
+Upload clips to the same library folder as your books (step 4), then tap
+"Grant access to new files" and select them, same as adding a book. While
+playing a chapter that has a matching clip, it auto-plays muted and looped
+as a visual alongside the audio narration (not a replacement for it), with
+a small "🎬 Clip" badge on the cover art as an indicator.
 
 ## Notes / known limitations
 

@@ -1,32 +1,31 @@
 import { initAuth, requestAccessToken, onAuthReady } from './auth.js';
-import { openAudioPicker, openChaptersPicker, openClipsFolderPicker } from './picker.js';
+import { openLibraryFolderPicker, openGrantFilesPicker, syncBooksFolder } from './picker.js';
 import {
   getLibrary,
   removeBook,
   getHistory,
-  getClipsFolderId,
-  setClipsFolderId,
-  getShowClipsPref,
-  setShowClipsPref,
+  getLibraryFolderId,
+  setLibraryFolderId,
 } from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
-import { fetchClipsMap, chapterNumberFromTitle } from './clips.js';
+import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
+import { listFilesRecursive } from './drive.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
 const els = {
+  signInHero: document.getElementById('signInHero'),
   loginBtn: document.getElementById('loginBtn'),
   userStatus: document.getElementById('userStatus'),
   libraryView: document.getElementById('libraryView'),
   playerView: document.getElementById('playerView'),
-  addAudioBtn: document.getElementById('addAudioBtn'),
-  addChaptersBtn: document.getElementById('addChaptersBtn'),
-  addClipsBtn: document.getElementById('addClipsBtn'),
+  addLibraryBtn: document.getElementById('addLibraryBtn'),
+  grantFilesBtn: document.getElementById('grantFilesBtn'),
+  syncStatusMsg: document.getElementById('syncStatusMsg'),
   libraryList: document.getElementById('libraryList'),
   emptyLibraryMsg: document.getElementById('emptyLibraryMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
-  playerCover: document.getElementById('playerCover'),
   playerTitle: document.getElementById('playerTitle'),
   scrubber: document.getElementById('scrubber'),
   currentTimeLabel: document.getElementById('currentTimeLabel'),
@@ -45,12 +44,7 @@ const els = {
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   audioEl: document.getElementById('audioEl'),
   clipVideo: document.getElementById('clipVideo'),
-  clipToggleBtn: document.getElementById('clipToggleBtn'),
 };
-
-els.playerCover.addEventListener('error', () => {
-  els.playerCover.src = PLACEHOLDER_COVER;
-});
 
 let sleepDisplayInterval = null;
 
@@ -117,7 +111,6 @@ function updateScrubber(current, duration) {
 
 let currentBook = null;
 let clipsMap = {}; // chapter number -> Drive file id, from clips.js
-let showClips = getShowClipsPref();
 let currentClipFileId = null;
 let lastDisplayedChapterIdx = -2; // distinct from currentChapterIndex()'s -1 ("no chapter yet")
 
@@ -163,34 +156,77 @@ function updateClipForChapter(chapter) {
   const fileId = num != null ? clipsMap[num] : null;
   currentClipFileId = fileId || null;
 
-  els.clipToggleBtn.classList.toggle('hidden', !currentClipFileId);
-  if (currentClipFileId && showClips) {
+  if (currentClipFileId) {
     showClip(currentClipFileId);
   } else {
     hideClip();
   }
 }
 
+// Loads the clip but only starts it if the audiobook is currently playing
+// — the video's own play/pause state otherwise follows the audio element's
+// 'play'/'pause' events (see below), so it doesn't run on its own while
+// the audio is paused or hasn't started yet.
 function showClip(fileId) {
   els.clipVideo.src = `./drive-video/${fileId}?mime=video/mp4`;
-  els.clipVideo.play().catch(() => {});
   els.clipVideo.classList.remove('hidden');
-  els.playerCover.classList.add('hidden');
-  els.clipToggleBtn.textContent = 'Hide clip';
+  if (!els.audioEl.paused) els.clipVideo.play().catch(() => {});
 }
 
 function hideClip() {
   els.clipVideo.pause();
   els.clipVideo.removeAttribute('src');
   els.clipVideo.classList.add('hidden');
-  els.playerCover.classList.remove('hidden');
-  els.clipToggleBtn.textContent = 'Show clip';
 }
 
-async function refreshClipsMap() {
-  clipsMap = await fetchClipsMap(getClipsFolderId());
-  if (!els.playerView.classList.contains('hidden')) {
-    updateClipForChapter(player.currentChapterIndex() >= 0 ? player.chapters[player.currentChapterIndex()] : null);
+// Scans the configured library folder (once, recursively) for books/
+// chapters and clips together, reporting what it actually found — or that
+// it couldn't check — in a visible status line. Silently finding nothing
+// and silently failing to check look identical otherwise, which makes an
+// empty result impossible to debug; when clips come up empty despite
+// video-looking files being present, those filenames are surfaced too, so
+// a naming/folder mismatch is visible instead of a bare "0 found".
+async function syncLibrary() {
+  const folderId = getLibraryFolderId();
+  if (!folderId) {
+    els.syncStatusMsg.textContent = 'No library folder selected yet — tap "Add library folder" above.';
+    return;
+  }
+
+  els.syncStatusMsg.textContent = 'Scanning library folder…';
+  try {
+    const files = await listFilesRecursive(folderId);
+    const lib = syncBooksFolder(files);
+    clipsMap = buildClipsMap(files);
+    renderLibrary();
+
+    const clipCount = Object.keys(clipsMap).length;
+    let status =
+      `Library folder scanned: ${files.length} file${files.length === 1 ? '' : 's'} total, ` +
+      `${lib.length} book${lib.length === 1 ? '' : 's'}, ${clipCount} clip${clipCount === 1 ? '' : 's'} found.`;
+
+    if (clipCount === 0) {
+      const nearMisses = findClipNearMisses(files);
+      if (nearMisses.length) {
+        status += ` Video-like files that didn't match "chNNN_final.mp4": ${nearMisses.slice(0, 5).join(', ')}${nearMisses.length > 5 ? '…' : ''}.`;
+      }
+    }
+    // Every filename Drive actually returned — spelled out because a
+    // permission gap (e.g. files added to the folder after it was granted)
+    // makes some files invisible to files.list with no error, which looks
+    // identical to "the folder is just empty" otherwise.
+    status += ` Files seen: ${files.map((f) => f.name).join(', ') || '(none)'}.`;
+    els.syncStatusMsg.textContent = status;
+    console.log('[adp] library folder scan:', files);
+
+    if (!els.playerView.classList.contains('hidden')) {
+      const idx = player.currentChapterIndex();
+      updateClipForChapter(idx >= 0 ? player.chapters[idx] : null);
+    }
+  } catch (err) {
+    console.error(err);
+    els.syncStatusMsg.textContent =
+      'Could not scan the library folder — check your sign-in/connection and try again.';
   }
 }
 
@@ -294,12 +330,6 @@ async function openPlayer(book) {
   renderHistory();
   lastDisplayedChapterIdx = -2;
   hideClip();
-  els.clipToggleBtn.classList.add('hidden');
-
-  els.playerCover.src = PLACEHOLDER_COVER;
-  getThumbnail(book.audioFileId).then((url) => {
-    if (url) els.playerCover.src = url;
-  });
 
   await player.load(book);
 }
@@ -311,8 +341,17 @@ els.backToLibraryBtn.addEventListener('click', () => {
 });
 
 els.playPauseBtn.addEventListener('click', () => player.togglePlay());
-els.audioEl.addEventListener('play', () => (els.playPauseBtn.textContent = 'Pause'));
-els.audioEl.addEventListener('pause', () => (els.playPauseBtn.textContent = 'Play'));
+// The clip is decorative (a short muted loop, not frame-synced to the
+// narration), but its play/pause state should still follow the audiobook's
+// — otherwise it keeps looping merrily away while playback is paused.
+els.audioEl.addEventListener('play', () => {
+  els.playPauseBtn.textContent = 'Pause';
+  if (currentClipFileId) els.clipVideo.play().catch(() => {});
+});
+els.audioEl.addEventListener('pause', () => {
+  els.playPauseBtn.textContent = 'Play';
+  els.clipVideo.pause();
+});
 
 els.skipBackBtn.addEventListener('click', () => player.skip(-30));
 els.skipFwdBtn.addEventListener('click', () => player.skip(30));
@@ -333,19 +372,17 @@ els.scrubber.addEventListener('change', () => {
   scrubbing = false;
 });
 
-els.addAudioBtn.addEventListener('click', () => openAudioPicker(() => renderLibrary()));
-els.addChaptersBtn.addEventListener('click', () => openChaptersPicker(() => renderLibrary()));
-els.addClipsBtn.addEventListener('click', () => {
-  openClipsFolderPicker((folderId) => {
-    setClipsFolderId(folderId);
-    refreshClipsMap();
+els.addLibraryBtn.addEventListener('click', () => {
+  openLibraryFolderPicker((folderId) => {
+    setLibraryFolderId(folderId);
+    syncLibrary();
   });
 });
-els.clipToggleBtn.addEventListener('click', () => {
-  showClips = !showClips;
-  setShowClipsPref(showClips);
-  if (currentClipFileId && showClips) showClip(currentClipFileId);
-  else hideClip();
+els.grantFilesBtn.addEventListener('click', () => {
+  // The picked docs themselves aren't needed here — the act of selecting
+  // them in the dialog is what grants access under drive.file. Re-scanning
+  // afterward picks them up via the normal folder-listing path.
+  openGrantFilesPicker(() => syncLibrary());
 });
 els.loginBtn.disabled = true;
 els.loginBtn.textContent = 'Loading…';
@@ -364,12 +401,12 @@ window.addEventListener('adp:token-expiring', () => {
 });
 
 function handleTokenRefreshed() {
-  els.loginBtn.classList.add('hidden');
+  els.signInHero.classList.add('hidden');
   els.userStatus.classList.remove('hidden');
   els.userStatus.textContent = 'Signed in';
   els.libraryView.classList.remove('hidden');
   renderLibrary();
-  refreshClipsMap();
+  syncLibrary();
 
   if (!els.playerView.classList.contains('hidden')) {
     player.reloadAfterAuth();

@@ -50,6 +50,25 @@ body {
   padding: 1.25rem;
 }
 
+.sign-in-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  padding: 5vw;
+}
+
+/* #loginBtn (id, not just .sign-in-btn) so these reliably beat the generic
+   .btn rules regardless of stylesheet order — same specificity would
+   otherwise let source order silently pick the small .btn font-size. */
+#loginBtn.sign-in-btn {
+  width: 90vw;
+  height: 75vh;
+  font-size: clamp(1.6rem, 6vw, 4rem);
+  line-height: 1.25;
+  border-radius: 2rem;
+}
+
 .btn {
   background: var(--surface-2);
   color: var(--text);
@@ -91,11 +110,24 @@ body {
   min-width: 4.5rem;
 }
 
+/* #playPauseBtn (id) so this reliably wins over the shared .btn rules
+   regardless of stylesheet order — same lesson as #loginBtn above. */
+#playPauseBtn {
+  padding: 1.2rem 2.2rem;
+  font-size: 1.9rem;
+  min-width: 9rem;
+}
+
 .library-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.sync-status {
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 .library-list {
@@ -131,35 +163,14 @@ body {
   flex: 1;
 }
 
-.clip-wrap {
-  position: relative;
-  width: 10rem;
-  max-width: 60vw;
-  margin: 1rem auto 0;
-}
-
-.player-cover,
-.player-clip {
+/* Full-width like the scrubber below it — no fixed height, so it keeps the
+   clip's own aspect ratio instead of being cropped to a square. */
+.clip-video {
   display: block;
-  width: 10rem;
-  height: 10rem;
-  max-width: 60vw;
-  max-height: 60vw;
-  border-radius: 0.75rem;
-  object-fit: cover;
-  background: var(--surface-2);
-}
-
-.player-clip {
-  position: absolute;
-  inset: 0;
   width: 100%;
-  height: 100%;
-}
-
-.clip-toggle {
-  display: block;
-  margin: 0.6rem auto 0;
+  margin: 1rem 0 0;
+  border-radius: 0.75rem;
+  background: var(--surface-2);
 }
 
 #playerTitle {

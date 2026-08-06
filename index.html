@@ -15,34 +15,37 @@
 <header class="topbar">
   <h1>Audiobook Drive Player</h1>
   <div id="authArea">
-    <button id="loginBtn" class="btn">Sign in with Google</button>
     <span id="userStatus" class="hidden muted"></span>
   </div>
 </header>
 
+<div id="signInHero" class="sign-in-hero">
+  <button id="loginBtn" class="btn primary sign-in-btn">Sign in with Google</button>
+</div>
+
 <main id="libraryView" class="view hidden">
   <div class="library-toolbar">
-    <button id="addAudioBtn" class="btn">Add audiobook</button>
-    <button id="addChaptersBtn" class="btn ghost">Add chapters file</button>
-    <button id="addClipsBtn" class="btn ghost">Add clips folder</button>
+    <button id="addLibraryBtn" class="btn">Add library folder</button>
+    <button id="grantFilesBtn" class="btn ghost">Grant access to new files</button>
   </div>
+  <p id="syncStatusMsg" class="muted sync-status"></p>
   <ul id="libraryList" class="library-list"></ul>
   <p id="emptyLibraryMsg" class="muted hidden">
-    No books yet — tap "Add audiobook" and pick your audio file(s) from Google
-    Drive. If you generated <code>.chapters.json</code> sidecars with
-    <code>generate-chapters.ps1</code>, add each one afterwards with
-    "Add chapters file".
+    No books yet — tap "Add library folder" and pick the Drive folder where
+    you keep your audio files, their <code>.chapters.json</code> sidecars
+    (see <code>generate-chapters.ps1</code>), and any
+    <code>chNNN_final.mp4</code> video clips. Do that once. Whenever you add
+    new files to that folder afterward, tap "Grant access to new files" and
+    select them (Drive only shows the app files you've explicitly picked,
+    so new uploads need this step before they'll appear).
   </p>
 </main>
 
 <main id="playerView" class="view hidden">
   <button id="backToLibraryBtn" class="btn ghost">&larr; Library</button>
-  <div class="clip-wrap">
-    <img id="playerCover" class="player-cover" src="./icons/icon-192.png" alt="">
-    <video id="clipVideo" class="player-clip hidden" muted loop playsinline></video>
-  </div>
-  <button id="clipToggleBtn" class="btn ghost small clip-toggle hidden">Show clip</button>
   <h2 id="playerTitle"></h2>
+
+  <video id="clipVideo" class="clip-video hidden" muted loop playsinline></video>
 
   <div class="scrubber-row">
     <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
