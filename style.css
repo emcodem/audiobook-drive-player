@@ -204,25 +204,27 @@ body {
   margin: 1.5rem 0;
 }
 
-.speed-row {
+.sleep-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: 1.2rem;
   margin-bottom: 1.5rem;
+  font-size: 1.6rem;
 }
 
 #sleepRemainingLabel {
   font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
+  font-size: 1.2rem;
 }
 
-.speed-row select {
+.sleep-row select {
   background: var(--surface-2);
   color: var(--text);
   border: none;
-  border-radius: 0.5rem;
-  padding: 0.35rem 0.5rem;
+  border-radius: 1rem;
+  padding: 0.7rem 1rem;
+  font-size: 1.6rem;
 }
 
 #chaptersSection h3,
@@ -238,6 +240,11 @@ body {
   color: var(--muted);
   font-size: 0.8rem;
   display: block;
+}
+
+.chapter-list li.history-sleep {
+  color: var(--muted);
+  font-style: italic;
 }
 
 .chapter-list {

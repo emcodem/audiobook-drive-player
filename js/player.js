@@ -59,7 +59,24 @@ export class Player {
         this._sleepDeadline = null;
         this.onSleepTimerEnded();
       }, ms);
+      this._recordSleepHistory(minutes);
     }
+  }
+
+  // Records where in the book (and when) the sleep timer was turned on, so
+  // the listening history shows it alongside chapter entries.
+  _recordSleepHistory(minutes) {
+    if (!this.book) return;
+    const idx = this.currentChapterIndex();
+    const chapter = idx >= 0 ? this.chapters[idx] : null;
+    addHistoryEntry(this.book.audioFileId, {
+      type: 'sleep',
+      chapterIndex: idx,
+      title: chapter ? (chapter.title || `Chapter ${idx + 1}`) : this.book.name,
+      minutes,
+      at: Date.now(),
+    });
+    this.onHistoryUpdated();
   }
 
   // Seconds remaining, or null if no sleep timer is active. This counts down
@@ -105,10 +122,6 @@ export class Player {
 
   seekTo(seconds) {
     this.audioEl.currentTime = seconds;
-  }
-
-  setPlaybackRate(rate) {
-    this.audioEl.playbackRate = rate;
   }
 
   jumpToChapter(index) {

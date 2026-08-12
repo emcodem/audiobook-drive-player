@@ -33,7 +33,6 @@ const els = {
   playPauseBtn: document.getElementById('playPauseBtn'),
   skipBackBtn: document.getElementById('skipBackBtn'),
   skipFwdBtn: document.getElementById('skipFwdBtn'),
-  speedSelect: document.getElementById('speedSelect'),
   sleepSelect: document.getElementById('sleepSelect'),
   sleepRemainingLabel: document.getElementById('sleepRemainingLabel'),
   chapterList: document.getElementById('chapterList'),
@@ -267,13 +266,15 @@ function renderHistory() {
   // Most recently listened first.
   [...history].reverse().forEach((entry) => {
     const li = document.createElement('li');
-    const titleText = document.createTextNode(entry.title + ' ');
+    const label = entry.type === 'sleep' ? `Sleep timer set (${entry.minutes} min) — ${entry.title}` : entry.title;
+    const titleText = document.createTextNode(label + ' ');
     const time = document.createElement('span');
     time.className = 'history-time';
     time.textContent = formatHistoryTimestamp(entry.at);
     li.appendChild(titleText);
     li.appendChild(time);
-    li.addEventListener('click', () => player.jumpToChapter(entry.chapterIndex));
+    if (entry.type === 'sleep') li.classList.add('history-sleep');
+    if (entry.chapterIndex >= 0) li.addEventListener('click', () => player.jumpToChapter(entry.chapterIndex));
     els.historyList.appendChild(li);
   });
 }
@@ -355,8 +356,6 @@ els.audioEl.addEventListener('pause', () => {
 
 els.skipBackBtn.addEventListener('click', () => player.skip(-30));
 els.skipFwdBtn.addEventListener('click', () => player.skip(30));
-els.speedSelect.addEventListener('change', (e) => player.setPlaybackRate(parseFloat(e.target.value)));
-
 els.sleepSelect.addEventListener('change', (e) => {
   const minutes = parseInt(e.target.value, 10);
   player.setSleepTimer(minutes);
