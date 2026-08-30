@@ -27,6 +27,13 @@ export function addBooks(newBooks) {
 
 export function removeBook(audioFileId) {
   saveLibrary(getLibrary().filter((b) => b.audioFileId !== audioFileId));
+  // Otherwise these orphan forever — removing a book from the library
+  // never removed its position/history data, so localStorage usage grew
+  // unbounded across every book ever added-then-removed over the app's
+  // lifetime, even though each individual book's own history is capped
+  // (see HISTORY_LIMIT below).
+  localStorage.removeItem(positionKey(audioFileId));
+  localStorage.removeItem(historyKey(audioFileId));
 }
 
 function positionKey(fileId) {
