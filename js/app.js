@@ -43,6 +43,8 @@ const els = {
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
+  updateBanner: document.getElementById('updateBanner'),
+  updateReloadBtn: document.getElementById('updateReloadBtn'),
   audioEl: document.getElementById('audioEl'),
   clipVideo: document.getElementById('clipVideo'),
 };
@@ -617,5 +619,27 @@ if ('serviceWorker' in navigator) {
   // updateViaCache: 'none' makes the browser always re-fetch this file (and
   // its statically imported modules) from the network when checking for
   // updates, instead of potentially reusing an HTTP-cached copy.
-  navigator.serviceWorker.register('./service-worker.js', { type: 'module', updateViaCache: 'none' });
+  navigator.serviceWorker.register('./service-worker.js', { type: 'module', updateViaCache: 'none' }).then((reg) => {
+    // An installed home-screen PWA is usually *resumed* rather than freshly
+    // navigated when reopened — the browser's normal "check for a new
+    // service worker on navigation" trigger often never fires on its own.
+    // So check for an update explicitly every time the app comes back to
+    // the foreground, in addition to right after registration.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update();
+    });
+    reg.update();
+  });
+
+  // The new service worker (install() calls skipWaiting(), activate() calls
+  // clients.claim() — see service-worker.js) takes control as soon as it's
+  // ready, firing this event. The already-open page is still running the
+  // OLD app.js/index.html in memory at that point — reloading is the only
+  // way to actually pick up the new version. Rather than reloading
+  // immediately (which would cut off playback with no warning), show a
+  // small banner and let the reload happen on the user's own tap.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    els.updateBanner.classList.remove('hidden');
+  });
+  els.updateReloadBtn.addEventListener('click', () => window.location.reload());
 }

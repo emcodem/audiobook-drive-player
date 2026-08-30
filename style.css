@@ -371,3 +371,23 @@ body {
   font-size: 1.1rem;
   font-weight: 600;
 }
+
+.update-banner {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 900;
+  background: var(--surface-2);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.update-banner span {
+  font-size: 0.9rem;
+}
