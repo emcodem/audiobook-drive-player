@@ -349,20 +349,7 @@ async function renderDownloadControl(book, container) {
     const label = document.createElement('span');
     label.className = 'muted small';
     label.textContent = 'Downloaded';
-
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = 'Remove download';
-    removeBtn.className = 'btn ghost small';
-    removeBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!confirm('Remove the downloaded copy of this book? You can download it again later.')) return;
-      removeBtn.disabled = true;
-      await removeDownload(fileId);
-      renderDownloadControl(book, container);
-    });
-
     container.appendChild(label);
-    container.appendChild(removeBtn);
     return;
   }
 
@@ -401,6 +388,75 @@ function startDownload(book, container) {
     });
 }
 
+// Closes every open item menu — called when a menu button is clicked (so
+// opening one closes any other left open) and on any click elsewhere in the
+// document (so tapping away dismisses it).
+function closeAllItemMenus() {
+  document.querySelectorAll('.item-menu-dropdown').forEach((d) => d.classList.add('hidden'));
+}
+document.addEventListener('click', closeAllItemMenus);
+
+// A single "⋯" button holding both destructive actions for one book, so the
+// row only ever shows one small tap target on that side — placed on the
+// LEFT, away from where a thumb naturally rests while scrolling a list on
+// the right — instead of an always-visible "Remove" button that's easy to
+// hit by accident. Options are built fresh each time the menu opens, so
+// "Remove downloaded copy" only appears when there actually is one.
+function buildItemMenu(book) {
+  const wrap = document.createElement('div');
+  wrap.className = 'library-item-menu';
+
+  const menuBtn = document.createElement('button');
+  menuBtn.textContent = '⋮';
+  menuBtn.className = 'btn ghost small library-item-menu-btn';
+  menuBtn.setAttribute('aria-label', 'Book options');
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'item-menu-dropdown hidden';
+
+  menuBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const wasOpen = !dropdown.classList.contains('hidden');
+    closeAllItemMenus();
+    if (wasOpen) return;
+
+    dropdown.innerHTML = '';
+    const cached = await hasCachedFile(book.audioFileId);
+
+    if (cached) {
+      const removeDlBtn = document.createElement('button');
+      removeDlBtn.textContent = 'Remove downloaded copy';
+      removeDlBtn.className = 'item-menu-option';
+      removeDlBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        dropdown.classList.add('hidden');
+        if (!confirm('Remove the downloaded copy of this book? You can download it again later.')) return;
+        await removeDownload(book.audioFileId);
+        refreshDownloadRowInPlace(book.audioFileId);
+      });
+      dropdown.appendChild(removeDlBtn);
+    }
+
+    const removeLibBtn = document.createElement('button');
+    removeLibBtn.textContent = 'Remove from library';
+    removeLibBtn.className = 'item-menu-option danger';
+    removeLibBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      dropdown.classList.add('hidden');
+      if (!confirm(`Remove "${book.name}" from your library? You can add it back from the Drive folder later.`)) return;
+      removeBook(book.audioFileId);
+      renderLibrary();
+    });
+    dropdown.appendChild(removeLibBtn);
+
+    dropdown.classList.remove('hidden');
+  });
+
+  wrap.appendChild(menuBtn);
+  wrap.appendChild(dropdown);
+  return wrap;
+}
+
 function renderLibrary() {
   const lib = getLibrary();
   els.libraryList.innerHTML = '';
@@ -409,6 +465,8 @@ function renderLibrary() {
   lib.forEach((book) => {
     const li = document.createElement('li');
     li.className = 'library-item';
+
+    const menu = buildItemMenu(book);
 
     const cover = document.createElement('img');
     cover.className = 'library-item-cover';
@@ -435,19 +493,9 @@ function renderLibrary() {
     info.appendChild(nameSpan);
     info.appendChild(downloadWrap);
 
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = 'Remove';
-    removeBtn.className = 'btn ghost small';
-    removeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!confirm(`Remove "${book.name}" from your library? You can add it back from the Drive folder later.`)) return;
-      removeBook(book.audioFileId);
-      renderLibrary();
-    });
-
+    li.appendChild(menu);
     li.appendChild(cover);
     li.appendChild(info);
-    li.appendChild(removeBtn);
     els.libraryList.appendChild(li);
   });
 }
