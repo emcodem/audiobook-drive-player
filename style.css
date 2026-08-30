@@ -44,6 +44,12 @@ body {
   margin: 0;
 }
 
+#authArea {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .view {
   max-width: 640px;
   margin: 0 auto;

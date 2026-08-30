@@ -18,6 +18,7 @@ const PLACEHOLDER_COVER = './icons/icon-192.png';
 const els = {
   signInHero: document.getElementById('signInHero'),
   loginBtn: document.getElementById('loginBtn'),
+  signInTopBtn: document.getElementById('signInTopBtn'),
   userStatus: document.getElementById('userStatus'),
   libraryView: document.getElementById('libraryView'),
   playerView: document.getElementById('playerView'),
@@ -516,11 +517,14 @@ els.grantFilesBtn.addEventListener('click', () => {
 });
 els.loginBtn.disabled = true;
 els.loginBtn.textContent = 'Loading…';
+els.signInTopBtn.disabled = true;
 onAuthReady(() => {
   els.loginBtn.disabled = false;
   els.loginBtn.textContent = 'Sign in with Google';
+  els.signInTopBtn.disabled = false;
 });
 els.loginBtn.addEventListener('click', () => requestAccessToken());
+els.signInTopBtn.addEventListener('click', () => requestAccessToken());
 els.keepListeningBtn.addEventListener('click', () => {
   requestAccessToken();
   els.tokenBanner.classList.add('hidden');
@@ -532,6 +536,7 @@ window.addEventListener('adp:token-expiring', () => {
 
 function handleTokenRefreshed() {
   els.signInHero.classList.add('hidden');
+  els.signInTopBtn.classList.add('hidden');
   els.userStatus.classList.remove('hidden');
   els.userStatus.textContent = 'Signed in';
   els.libraryView.classList.remove('hidden');
@@ -541,6 +546,21 @@ function handleTokenRefreshed() {
   if (!els.playerView.classList.contains('hidden')) {
     player.reloadAfterAuth();
   }
+}
+
+// The library itself (list of books, and any already-downloaded audio) lives
+// in localStorage/IndexedDB on this device — none of that needs a Google
+// session to read or play. Signing in is only needed to *reach out to
+// Drive*: scanning the library folder for new books, loading thumbnails/
+// chapters, or streaming a book that hasn't been downloaded. So: show the
+// library immediately if there's any local data, sign in or not, and only
+// fall back to the full-screen sign-in prompt on a genuinely first run.
+const hasLocalLibrary = getLibrary().length > 0 || !!getLibraryFolderId();
+if (hasLocalLibrary) {
+  els.signInHero.classList.add('hidden');
+  els.libraryView.classList.remove('hidden');
+  els.signInTopBtn.classList.remove('hidden');
+  renderLibrary();
 }
 
 initAuth({ onTokenChange: handleTokenRefreshed });
