@@ -6,7 +6,7 @@
 // and thumbnails.js for the read side), so a downloaded book is genuinely
 // usable with no network at all — not just the audio.
 import { getAccessToken } from './auth.js';
-import { putCachedFile, deleteCachedFile, hasCachedFile } from './file-cache.js';
+import { putCachedFile, deleteCachedFile, hasCachedFile, getCachedFile, updateCachedFileFields } from './file-cache.js';
 import { fetchChapters } from './chapters.js';
 
 export { hasCachedFile } from './file-cache.js';
@@ -81,4 +81,27 @@ export async function downloadBook(book, onProgress) {
 
 export async function removeDownload(fileId) {
   await deleteCachedFile(fileId);
+}
+
+// Re-fetches just the chapter sidecar and cover thumbnail for a book that's
+// already downloaded, without touching its (potentially gigabytes-large)
+// cached audio blob — for when metadata capture failed at download time
+// (no sign-in yet, a token that expired partway through a long download,
+// etc.) and re-downloading the whole audio file again would be wasteful.
+export async function refreshMetadata(book) {
+  const token = getAccessToken();
+  if (!token) throw new Error('Sign in first');
+
+  const existing = await getCachedFile(book.audioFileId);
+  if (!existing) throw new Error('This book is not downloaded');
+
+  const [chapterData, thumbnailBlob] = await Promise.all([
+    fetchChapters(book.chaptersFileId),
+    fetchThumbnailBlob(book.audioFileId, token),
+  ]);
+
+  await updateCachedFileFields(book.audioFileId, {
+    chapters: chapterData ? chapterData.chapters : null,
+    thumbnailBlob: thumbnailBlob || null,
+  });
 }

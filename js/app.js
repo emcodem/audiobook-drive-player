@@ -11,7 +11,7 @@ import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
-import { downloadBook, removeDownload, hasCachedFile } from './downloader.js';
+import { downloadBook, removeDownload, refreshMetadata, hasCachedFile } from './downloader.js';
 import { getDebugEntries, clearDebugEntries, onDebugLog } from './debug-log.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
@@ -468,6 +468,24 @@ function buildItemMenu(book) {
     const cached = await hasCachedFile(book.audioFileId);
 
     if (cached) {
+      const refreshBtn = document.createElement('button');
+      refreshBtn.textContent = 'Refresh chapters & cover';
+      refreshBtn.className = 'item-menu-option';
+      refreshBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Refreshing…';
+        try {
+          await refreshMetadata(book);
+          refreshBtn.textContent = 'Refreshed ✓';
+        } catch (err) {
+          console.error(err);
+          refreshBtn.textContent = err.message === 'Sign in first' ? 'Sign in first' : 'Refresh failed';
+        }
+        setTimeout(() => dropdown.classList.add('hidden'), 900);
+      });
+      dropdown.appendChild(refreshBtn);
+
       const removeDlBtn = document.createElement('button');
       removeDlBtn.textContent = 'Remove downloaded copy';
       removeDlBtn.className = 'item-menu-option';

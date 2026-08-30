@@ -42,6 +42,18 @@ export async function hasCachedFile(fileId) {
   return !!(await getCachedFile(fileId));
 }
 
+// Updates only the given fields of an already-cached record (e.g. re-
+// fetched chapters/thumbnail) without touching its existing (potentially
+// huge) audio blob — a plain putCachedFile would need the whole record
+// re-supplied, including the blob, so this reads-merges-writes instead.
+// No-op (returns false) if the file isn't cached at all.
+export async function updateCachedFileFields(fileId, updates) {
+  const existing = await getCachedFile(fileId);
+  if (!existing) return false;
+  await putCachedFile({ ...existing, ...updates });
+  return true;
+}
+
 export async function deleteCachedFile(fileId) {
   const db = await openDb();
   await new Promise((resolve, reject) => {
