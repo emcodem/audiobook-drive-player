@@ -35,12 +35,13 @@ of any kind.
   chapter, with a small "🎬 Clip" badge as an indicator — see "Optional:
   video clips per chapter" below.
 - **Offline downloads**: tap "Download" on any book in your library to fetch
-  the whole audio file once and store it in the browser's local storage
-  (IndexedDB). Once downloaded, that book plays entirely from the local copy
-  — no Drive API calls, no access token needed, and no more "Tap to keep
-  listening" banner for it, even after the hourly token expiry. Tap "Remove
-  download" on a book to delete just that file from local storage and free
-  the space; nothing else in your library is affected.
+  the whole audio file, its chapter data, and its cover thumbnail once and
+  store them in the browser's local storage (IndexedDB). Once downloaded,
+  that book works entirely offline — audio, chapters, and cover art — with
+  no Drive API calls, no access token, and no more "Tap to keep listening"
+  banner for it, even after the hourly token expiry. Tap "Remove downloaded
+  copy" (in the book's ⋮ menu) to delete just that book's local copy and
+  free the space; nothing else in your library is affected.
 
 ### The one real limitation
 

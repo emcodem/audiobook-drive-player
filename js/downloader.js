@@ -1,11 +1,35 @@
 // Downloads a book's full audio file once (requires a valid access token,
 // same as any other Drive call) and stores it in the local blob cache so
 // playback afterward never needs the network or a token again — see the
-// cache-first check in service-worker.js.
+// cache-first check in service-worker.js. Also fetches the chapter sidecar
+// and cover thumbnail at the same time and caches those too (see chapters.js
+// and thumbnails.js for the read side), so a downloaded book is genuinely
+// usable with no network at all — not just the audio.
 import { getAccessToken } from './auth.js';
 import { putCachedFile, deleteCachedFile, hasCachedFile } from './file-cache.js';
+import { fetchChapters } from './chapters.js';
 
 export { hasCachedFile } from './file-cache.js';
+
+// Best-effort: a book with no chapter sidecar, or a thumbnail fetch that
+// fails for any reason, shouldn't block the download — the audio itself is
+// the part that matters most, and both of these degrade gracefully (no
+// chapter list / a placeholder cover) if unavailable.
+async function fetchThumbnailBlob(fileId, token) {
+  try {
+    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=thumbnailLink`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) return null;
+    const { thumbnailLink } = await metaRes.json();
+    if (!thumbnailLink) return null;
+    const imgRes = await fetch(thumbnailLink);
+    if (!imgRes.ok) return null;
+    return await imgRes.blob();
+  } catch {
+    return null;
+  }
+}
 
 export async function downloadBook(book, onProgress) {
   const token = getAccessToken();
@@ -32,6 +56,12 @@ export async function downloadBook(book, onProgress) {
   }
 
   const blob = new Blob(chunks, { type: mimeType });
+
+  const [chapterData, thumbnailBlob] = await Promise.all([
+    fetchChapters(book.chaptersFileId),
+    fetchThumbnailBlob(fileId, token),
+  ]);
+
   await putCachedFile({
     fileId,
     blob,
@@ -39,6 +69,13 @@ export async function downloadBook(book, onProgress) {
     size: blob.size,
     name: book.name,
     downloadedAt: Date.now(),
+    // Stored even when null/absent (no sidecar, no thumbnail) so the cache
+    // record is authoritative — the read side (chapters.js/thumbnails.js)
+    // trusts "this book is downloaded" to mean "don't bother checking the
+    // network for this", rather than treating a missing value as "not
+    // fetched yet".
+    chapters: chapterData ? chapterData.chapters : null,
+    thumbnailBlob: thumbnailBlob || null,
   });
 }
 

@@ -1,5 +1,5 @@
 import { getPosition, setPosition, addHistoryEntry, getHistory } from './storage.js';
-import { fetchChapters } from './chapters.js';
+import { loadChapters } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
 
 const SAVE_INTERVAL_MS = 8000;
@@ -43,7 +43,7 @@ export class Player {
     this.audioEl.src = `./drive-audio/${book.audioFileId}?mime=${mime}`;
     this._setupMediaSession();
 
-    const chapterData = await fetchChapters(book.chaptersFileId);
+    const chapterData = await loadChapters(book);
     this.chapters = chapterData ? chapterData.chapters : [];
     this._chaptersReady = true;
     this.onChaptersLoaded(this.chapters);
