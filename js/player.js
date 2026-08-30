@@ -1,4 +1,4 @@
-import { getPosition, setPosition, addHistoryEntry } from './storage.js';
+import { getPosition, setPosition, addHistoryEntry, getHistory } from './storage.js';
 import { fetchChapters } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
 
@@ -35,6 +35,8 @@ export class Player {
     this.book = book;
     this.chapters = [];
     this._lastHistoryChapterIndex = -1;
+    this._chaptersReady = false;
+    this._resumeApplied = false;
     this.setSleepTimer(0);
 
     const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
@@ -43,7 +45,14 @@ export class Player {
 
     const chapterData = await fetchChapters(book.chaptersFileId);
     this.chapters = chapterData ? chapterData.chapters : [];
+    this._chaptersReady = true;
     this.onChaptersLoaded(this.chapters);
+    // Chapter data and audio metadata load independently and can finish in
+    // either order — whichever finishes second is what actually has enough
+    // information to resume correctly, so both trigger an attempt (see
+    // _resume(), which is a no-op until it has what it needs and only ever
+    // applies its one-time seek once).
+    this._resume();
   }
 
   // minutes === 0 cancels any active timer.
@@ -95,6 +104,7 @@ export class Player {
     if (!this.book) return;
     const wasPlaying = !this.audioEl.paused;
     const src = this.audioEl.src;
+    this._resumeApplied = false; // force _resume() to re-seek on the reload below
     this.audioEl.src = src;
     this.audioEl.load();
     if (wasPlaying) {
@@ -138,12 +148,46 @@ export class Player {
     return idx;
   }
 
+  // Restores playback position on load: the precise saved position (updated
+  // continuously during playback) if there is one, otherwise the start of
+  // the most recently listened chapter from the listening history — so a
+  // book resumes near where you left off instead of at the very beginning.
+  //
+  // Called once after chapters finish loading (from load()) and again on
+  // the audio element's 'loadedmetadata' — chapter data and audio metadata
+  // load independently and can finish in either order, and this needs both
+  // (metadata for a valid duration/seek target, chapters for the history
+  // fallback), so both call sites funnel through here; the _resumeApplied
+  // guard means only the first call that actually has everything performs
+  // the seek. Also re-syncs the UI (title, chapter highlight, scrubber)
+  // right away via onTimeUpdate — otherwise those only update on the first
+  // 'timeupdate' tick, which doesn't fire until playback actually starts,
+  // so the player would visually look like it opened at chapter 1 /
+  // position 0 until the user tapped Play even though the seek itself
+  // (once applied) was already correct.
   _resume() {
-    const saved = getPosition(this.book.audioFileId);
-    const duration = this.audioEl.duration;
-    if (saved && saved.position > 0 && (!duration || saved.position < duration - 2)) {
-      this.audioEl.currentTime = saved.position;
+    if (this._resumeApplied) {
+      this.onTimeUpdate(this.audioEl.currentTime, this.audioEl.duration);
+      return;
     }
+    if (this.audioEl.readyState < 1 || !this._chaptersReady) return; // wait for the other one
+
+    const duration = this.audioEl.duration;
+    const saved = getPosition(this.book.audioFileId);
+    let target = null;
+
+    if (saved && saved.position > 0 && (!duration || saved.position < duration - 2)) {
+      target = saved.position;
+    } else if (this.chapters.length) {
+      const history = getHistory(this.book.audioFileId);
+      const lastChapterEntry = [...history].reverse().find((e) => e.chapterIndex >= 0);
+      const chapter = lastChapterEntry ? this.chapters[lastChapterEntry.chapterIndex] : null;
+      if (chapter) target = chapter.start;
+    }
+
+    if (target != null) this.audioEl.currentTime = target;
+    this._resumeApplied = true;
+    this.onTimeUpdate(this.audioEl.currentTime, this.audioEl.duration);
   }
 
   _handleTimeUpdate() {

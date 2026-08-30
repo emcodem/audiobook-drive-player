@@ -302,6 +302,10 @@ body {
   margin-top: 1.5rem;
 }
 
+#chaptersSection {
+  margin-top: 1.5rem;
+}
+
 .chapter-list li .history-time {
   color: var(--muted);
   font-size: 0.8rem;
