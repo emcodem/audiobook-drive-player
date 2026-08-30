@@ -1,5 +1,6 @@
 import { getAccessToken } from './auth.js';
 import { getCachedFile } from './file-cache.js';
+import { logDebug } from './debug-log.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -8,21 +9,19 @@ import { getCachedFile } from './file-cache.js';
 // Pure network fetch — used both as the read-side fallback (loadChapters,
 // below) and by downloader.js when caching a book for offline use.
 //
-// Every early return here is logged (console.warn) with which case it hit —
-// "no chapters" can mean several different things (no sidecar file matched
-// at all, sign-in/network failure, or a sidecar that legitimately has no
-// chapter data) and they'd otherwise all look identical to the reader. Check
-// the browser console (usually F12, or the address-bar menu on mobile
-// Chrome → "Desktop site" isn't needed, just enable remote debugging or
-// check chrome://inspect from a desktop) to see which one applies.
+// Every early return here is logged via logDebug (see debug-log.js — check
+// it through the "Debug log" button in the top bar) with which case it
+// hit — "no chapters" can mean several different things (no sidecar file
+// matched at all, sign-in/network failure, or a sidecar that legitimately
+// has no chapter data) and they'd otherwise all look identical.
 export async function fetchChapters(chaptersFileId) {
   if (!chaptersFileId) {
-    console.warn('[adp] fetchChapters: this book has no chaptersFileId — no matching <name>.chapters.json was found for it when the library folder was scanned.');
+    logDebug('fetchChapters: this book has no chaptersFileId — no matching <name>.chapters.json was found for it when the library folder was scanned.');
     return null;
   }
   const token = getAccessToken();
   if (!token) {
-    console.warn('[adp] fetchChapters: no access token available (not signed in).');
+    logDebug('fetchChapters: no access token available (not signed in).');
     return null;
   }
 
@@ -32,17 +31,17 @@ export async function fetchChapters(chaptersFileId) {
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) {
-      console.warn(`[adp] fetchChapters: request for chaptersFileId=${chaptersFileId} failed with status ${res.status}.`);
+      logDebug(`fetchChapters: request for chaptersFileId=${chaptersFileId} failed with status ${res.status}.`);
       return null;
     }
     const data = await res.json();
     if (!Array.isArray(data.chapters) || !data.chapters.length) {
-      console.warn(`[adp] fetchChapters: chaptersFileId=${chaptersFileId} fetched OK but its "chapters" array is missing or empty.`);
+      logDebug(`fetchChapters: chaptersFileId=${chaptersFileId} fetched OK but its "chapters" array is missing or empty.`);
       return null;
     }
     return data;
   } catch (err) {
-    console.warn(`[adp] fetchChapters: request for chaptersFileId=${chaptersFileId} threw an error:`, err);
+    logDebug(`fetchChapters: request for chaptersFileId=${chaptersFileId} threw an error: ${err}`);
     return null;
   }
 }
@@ -56,7 +55,7 @@ export async function loadChapters(book) {
   const cached = await getCachedFile(book.audioFileId);
   if (cached) {
     if (!cached.chapters || !cached.chapters.length) {
-      console.warn(`[adp] loadChapters: "${book.name}" is downloaded, but no chapters were captured at download time (see downloadBook's fetchChapters call for why).`);
+      logDebug(`loadChapters: "${book.name}" is downloaded, but no chapters were captured at download time (see downloadBook's fetchChapters call for why).`);
       return null;
     }
     return { chapters: cached.chapters };

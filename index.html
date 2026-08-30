@@ -17,6 +17,7 @@
   <div id="authArea">
     <span id="userStatus" class="hidden muted"></span>
     <button id="signInTopBtn" class="btn ghost small hidden">Sign in</button>
+    <button id="debugLogBtn" class="btn ghost small">Debug</button>
   </div>
 </header>
 
@@ -100,6 +101,18 @@
 <div id="updateBanner" class="update-banner hidden">
   <span>A new version is ready.</span>
   <button id="updateReloadBtn" class="btn primary small">Refresh</button>
+</div>
+
+<div id="debugLogPanel" class="debug-log-panel hidden">
+  <div class="debug-log-header">
+    <span>Debug log</span>
+    <div class="debug-log-actions">
+      <button id="debugLogCopyBtn" class="btn ghost small">Copy</button>
+      <button id="debugLogClearBtn" class="btn ghost small">Clear</button>
+      <button id="debugLogCloseBtn" class="btn ghost small">Close</button>
+    </div>
+  </div>
+  <pre id="debugLogContent" class="debug-log-content"></pre>
 </div>
 
 <audio id="audioEl" preload="metadata"></audio>

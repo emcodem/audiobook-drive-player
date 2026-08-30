@@ -12,6 +12,7 @@ import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
 import { downloadBook, removeDownload, hasCachedFile } from './downloader.js';
+import { getDebugEntries, clearDebugEntries, onDebugLog } from './debug-log.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
@@ -45,6 +46,12 @@ const els = {
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   updateBanner: document.getElementById('updateBanner'),
   updateReloadBtn: document.getElementById('updateReloadBtn'),
+  debugLogBtn: document.getElementById('debugLogBtn'),
+  debugLogPanel: document.getElementById('debugLogPanel'),
+  debugLogContent: document.getElementById('debugLogContent'),
+  debugLogCopyBtn: document.getElementById('debugLogCopyBtn'),
+  debugLogClearBtn: document.getElementById('debugLogClearBtn'),
+  debugLogCloseBtn: document.getElementById('debugLogCloseBtn'),
   audioEl: document.getElementById('audioEl'),
   clipVideo: document.getElementById('clipVideo'),
 };
@@ -680,3 +687,47 @@ if ('serviceWorker' in navigator) {
   });
   els.updateReloadBtn.addEventListener('click', () => window.location.reload());
 }
+
+// On-page debug log — see debug-log.js. Exists because messages logged via
+// console.warn aren't reachable on a phone without a computer/adb; anything
+// that calls logDebug() elsewhere shows up here instead.
+function formatDebugEntry(entry) {
+  const time = new Date(entry.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  return `[${time}] ${entry.message}`;
+}
+
+function renderDebugLog() {
+  const entries = getDebugEntries();
+  els.debugLogContent.textContent = entries.length
+    ? entries.map(formatDebugEntry).join('\n')
+    : '(nothing logged yet)';
+  els.debugLogContent.scrollTop = els.debugLogContent.scrollHeight;
+}
+
+onDebugLog(() => {
+  if (!els.debugLogPanel.classList.contains('hidden')) renderDebugLog();
+});
+
+els.debugLogBtn.addEventListener('click', () => {
+  renderDebugLog();
+  els.debugLogPanel.classList.remove('hidden');
+});
+els.debugLogCloseBtn.addEventListener('click', () => {
+  els.debugLogPanel.classList.add('hidden');
+});
+els.debugLogClearBtn.addEventListener('click', () => {
+  clearDebugEntries();
+  renderDebugLog();
+});
+els.debugLogCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(els.debugLogContent.textContent);
+    els.debugLogCopyBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      els.debugLogCopyBtn.textContent = 'Copy';
+    }, 1500);
+  } catch {
+    // Clipboard API can be unavailable/denied — the text is still visible
+    // and selectable on-screen either way, so this is a soft failure.
+  }
+});
