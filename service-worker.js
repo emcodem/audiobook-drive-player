@@ -1,6 +1,15 @@
 import { getStoredToken } from './js/token-store.js';
 import { getCachedFile } from './js/file-cache.js';
 
+// Bumped on every deploy that changes anything user-facing (even files this
+// worker doesn't otherwise touch, like app.js or index.html). The browser's
+// service-worker update check is a byte-for-byte comparison of THIS file —
+// if it's identical to what's already installed, no update is detected and
+// the app-update banner (see app.js's controllerchange handler) never fires,
+// no matter what changed elsewhere. This line existing, and being touched
+// every time, is what makes that detection reliable.
+const APP_VERSION = '2026-08-30-3';
+
 // This service worker proxies Google Drive's byte-range media requests
 // (handleDriveMedia below) with the user's OAuth token attached, UNLESS the
 // file has been downloaded for offline use (js/downloader.js), in which case
