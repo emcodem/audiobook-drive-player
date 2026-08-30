@@ -296,6 +296,12 @@ function renderHistory() {
 // disappearing state was exactly what let the same book be downloaded twice
 // in parallel.
 const downloadState = new Map(); // fileId -> { received, total, error }
+// Keeps the real book object for each fileId that's currently in the
+// rendered list, so refreshDownloadRowInPlace (which only has a fileId to
+// work with) can look up the actual book instead of passing the ID string
+// itself into renderDownloadControl — that mix-up was why "Retry" silently
+// did nothing: it started a download with book.audioFileId === undefined.
+const booksByFileId = new Map();
 
 function downloadLabelText(state) {
   if (state.error) return 'Download failed — retry';
@@ -312,7 +318,7 @@ function refreshDownloadRowInPlace(fileId) {
   const container = els.libraryList.querySelector(
     `.library-item-download[data-file-id="${fileId}"]`
   );
-  if (container) renderDownloadControl(fileId, container);
+  if (container) renderDownloadControl(booksByFileId.get(fileId) || fileId, container);
 }
 
 // Renders the download/remove-download control for one library item into
@@ -465,6 +471,7 @@ function renderLibrary() {
   els.emptyLibraryMsg.classList.toggle('hidden', lib.length > 0);
 
   lib.forEach((book) => {
+    booksByFileId.set(book.audioFileId, book);
     const li = document.createElement('li');
     li.className = 'library-item';
 
