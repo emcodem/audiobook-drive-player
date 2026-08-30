@@ -1,10 +1,13 @@
 import { getStoredToken } from './js/token-store.js';
+import { getCachedFile } from './js/file-cache.js';
 
-// This service worker exists ONLY to proxy Google Drive's byte-range media
-// requests (handleDriveMedia below) with the user's OAuth token attached —
-// it does not cache the app shell. Every other request is left alone
-// (no respondWith call) and goes straight to the network, so app updates
-// are never masked by a stale cache.
+// This service worker proxies Google Drive's byte-range media requests
+// (handleDriveMedia below) with the user's OAuth token attached, UNLESS the
+// file has been downloaded for offline use (js/downloader.js), in which case
+// it's served straight from the local blob cache — no token, no network,
+// no re-auth prompt. It does not cache the app shell. Every other request is
+// left alone (no respondWith call) and goes straight to the network, so app
+// updates are never masked by a stale cache.
 let memoryToken = null;
 const sizeCache = new Map();
 
@@ -79,6 +82,11 @@ function parseRange(rangeHeader, total) {
 // CORS may not expose Content-Range/Content-Length on every response — but
 // the response body itself is always readable once the preflight succeeds.
 async function handleDriveMedia(fileId, request, mime) {
+  const cached = await getCachedFile(fileId);
+  if (cached && cached.blob) {
+    return respondFromCachedBlob(cached.blob, request, cached.mimeType || mime);
+  }
+
   const token = await getToken();
   if (!token) return new Response('No access token available', { status: 401 });
 
@@ -114,4 +122,23 @@ async function handleDriveMedia(fileId, request, mime) {
   if (range) headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
 
   return new Response(driveResponse.body, { status, headers });
+}
+
+// Same Range-handling contract as handleDriveMedia's network path above, but
+// sliced straight out of a locally cached Blob — no fetch, no token check.
+function respondFromCachedBlob(blob, request, mime) {
+  const total = blob.size;
+  const range = parseRange(request.headers.get('Range'), total);
+  const start = range ? range.start : 0;
+  const end = range ? range.end : total - 1;
+
+  const status = range ? 206 : 200;
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': mime,
+    'Content-Length': String(end - start + 1),
+  };
+  if (range) headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+
+  return new Response(blob.slice(start, end + 1, mime), { status, headers });
 }

@@ -11,6 +11,7 @@ import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
+import { downloadBook, removeDownload, hasCachedFile } from './downloader.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
@@ -63,6 +64,12 @@ function startSleepDisplay() {
     }
     els.sleepRemainingLabel.textContent = formatTime(remaining);
   }, 1000);
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
 }
 
 let scrubbing = false;
@@ -279,6 +286,56 @@ function renderHistory() {
   });
 }
 
+// Renders the download/remove-download control for one library item into
+// `container`, re-checking the cache each time so it reflects the true
+// current state (e.g. after a download finishes or a removal completes).
+async function renderDownloadControl(book, container) {
+  const cached = await hasCachedFile(book.audioFileId);
+  container.innerHTML = '';
+
+  if (cached) {
+    const label = document.createElement('span');
+    label.className = 'muted small';
+    label.textContent = 'Downloaded';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = 'Remove download';
+    removeBtn.className = 'btn ghost small';
+    removeBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      removeBtn.disabled = true;
+      await removeDownload(book.audioFileId);
+      renderDownloadControl(book, container);
+    });
+
+    container.appendChild(label);
+    container.appendChild(removeBtn);
+    return;
+  }
+
+  const dlBtn = document.createElement('button');
+  dlBtn.textContent = 'Download';
+  dlBtn.className = 'btn ghost small';
+  dlBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    dlBtn.disabled = true;
+    dlBtn.textContent = 'Downloading… 0%';
+    try {
+      await downloadBook(book, (received, total) => {
+        dlBtn.textContent = total
+          ? `Downloading… ${Math.round((received / total) * 100)}%`
+          : `Downloading… ${formatBytes(received)}`;
+      });
+      renderDownloadControl(book, container);
+    } catch (err) {
+      console.error(err);
+      dlBtn.disabled = false;
+      dlBtn.textContent = 'Download failed — retry';
+    }
+  });
+  container.appendChild(dlBtn);
+}
+
 function renderLibrary() {
   const lib = getLibrary();
   els.libraryList.innerHTML = '';
@@ -304,6 +361,15 @@ function renderLibrary() {
     nameSpan.className = 'library-item-name';
     nameSpan.addEventListener('click', () => openPlayer(book));
 
+    const downloadWrap = document.createElement('div');
+    downloadWrap.className = 'library-item-download';
+    renderDownloadControl(book, downloadWrap);
+
+    const info = document.createElement('div');
+    info.className = 'library-item-info';
+    info.appendChild(nameSpan);
+    info.appendChild(downloadWrap);
+
     const removeBtn = document.createElement('button');
     removeBtn.textContent = 'Remove';
     removeBtn.className = 'btn ghost small';
@@ -314,7 +380,7 @@ function renderLibrary() {
     });
 
     li.appendChild(cover);
-    li.appendChild(nameSpan);
+    li.appendChild(info);
     li.appendChild(removeBtn);
     els.libraryList.appendChild(li);
   });

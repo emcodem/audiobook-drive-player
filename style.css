@@ -158,9 +158,23 @@ body {
   flex-shrink: 0;
 }
 
+.library-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .library-item-name {
   cursor: pointer;
-  flex: 1;
+}
+
+.library-item-download {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 /* Full-width like the scrubber below it — no fixed height, so it keeps the

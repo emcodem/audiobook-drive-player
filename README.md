@@ -34,6 +34,13 @@ of any kind.
   clip in your library folder, it auto-plays (muted, looped) during that
   chapter, with a small "🎬 Clip" badge as an indicator — see "Optional:
   video clips per chapter" below.
+- **Offline downloads**: tap "Download" on any book in your library to fetch
+  the whole audio file once and store it in the browser's local storage
+  (IndexedDB). Once downloaded, that book plays entirely from the local copy
+  — no Drive API calls, no access token needed, and no more "Tap to keep
+  listening" banner for it, even after the hourly token expiry. Tap "Remove
+  download" on a book to delete just that file from local storage and free
+  the space; nothing else in your library is affected.
 
 ### The one real limitation
 
@@ -41,6 +48,7 @@ Google no longer allows a backend-less app to silently refresh its login
 in the background. Roughly once per hour of continuous listening, a small
 "Tap to keep listening" banner appears — tapping it is instant (you're
 already signed in, no re-typing anything), it just can't happen automatically.
+Downloading a book for offline use (above) avoids this entirely for that book.
 
 ## 1. Google Cloud Console setup (one-time, do this yourself)
 
