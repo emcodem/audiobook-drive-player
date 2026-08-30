@@ -286,11 +286,62 @@ function renderHistory() {
   });
 }
 
+// Tracks in-progress downloads across the whole module (not local to any one
+// button), keyed by audioFileId, so the state survives a full renderLibrary()
+// rebuild — e.g. triggered by removing a different book — instead of being
+// wiped and replaced with a fresh, clickable "Download" button. That
+// disappearing state was exactly what let the same book be downloaded twice
+// in parallel.
+const downloadState = new Map(); // fileId -> { received, total, error }
+
+function downloadLabelText(state) {
+  if (state.error) return 'Download failed — retry';
+  return state.total
+    ? `Downloading… ${Math.round((state.received / state.total) * 100)}%`
+    : `Downloading… ${formatBytes(state.received)}`;
+}
+
+// Updates just the one row's text/UI directly via a data-file-id lookup,
+// instead of re-rendering the whole library list on every progress tick
+// (which would be wasteful and would also fight with anything else the user
+// is doing in the list at that moment).
+function refreshDownloadRowInPlace(fileId) {
+  const container = els.libraryList.querySelector(
+    `.library-item-download[data-file-id="${fileId}"]`
+  );
+  if (container) renderDownloadControl(fileId, container);
+}
+
 // Renders the download/remove-download control for one library item into
-// `container`, re-checking the cache each time so it reflects the true
-// current state (e.g. after a download finishes or a removal completes).
+// `container`. Checks the in-progress state map first (so a rebuild mid-
+// download shows the real progress instead of resetting), then falls back
+// to the cache.
 async function renderDownloadControl(book, container) {
-  const cached = await hasCachedFile(book.audioFileId);
+  const fileId = typeof book === 'string' ? book : book.audioFileId;
+  container.dataset.fileId = fileId;
+
+  const state = downloadState.get(fileId);
+  if (state) {
+    container.innerHTML = '';
+    const label = document.createElement('span');
+    label.className = 'muted small';
+    label.textContent = downloadLabelText(state);
+    container.appendChild(label);
+    if (state.error) {
+      const retryBtn = document.createElement('button');
+      retryBtn.textContent = 'Retry';
+      retryBtn.className = 'btn ghost small';
+      retryBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        downloadState.delete(fileId);
+        startDownload(book, container);
+      });
+      container.appendChild(retryBtn);
+    }
+    return;
+  }
+
+  const cached = await hasCachedFile(fileId);
   container.innerHTML = '';
 
   if (cached) {
@@ -303,8 +354,9 @@ async function renderDownloadControl(book, container) {
     removeBtn.className = 'btn ghost small';
     removeBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if (!confirm('Remove the downloaded copy of this book? You can download it again later.')) return;
       removeBtn.disabled = true;
-      await removeDownload(book.audioFileId);
+      await removeDownload(fileId);
       renderDownloadControl(book, container);
     });
 
@@ -316,24 +368,36 @@ async function renderDownloadControl(book, container) {
   const dlBtn = document.createElement('button');
   dlBtn.textContent = 'Download';
   dlBtn.className = 'btn ghost small';
-  dlBtn.addEventListener('click', async (e) => {
+  dlBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    dlBtn.disabled = true;
-    dlBtn.textContent = 'Downloading… 0%';
-    try {
-      await downloadBook(book, (received, total) => {
-        dlBtn.textContent = total
-          ? `Downloading… ${Math.round((received / total) * 100)}%`
-          : `Downloading… ${formatBytes(received)}`;
-      });
-      renderDownloadControl(book, container);
-    } catch (err) {
-      console.error(err);
-      dlBtn.disabled = false;
-      dlBtn.textContent = 'Download failed — retry';
-    }
+    startDownload(book, container);
   });
   container.appendChild(dlBtn);
+}
+
+// Guards against starting a second download for a book that's already
+// downloading — the row won't even show a clickable "Download" button while
+// downloadState has an entry, but this is a second line of defense.
+function startDownload(book, container) {
+  const fileId = book.audioFileId;
+  if (downloadState.has(fileId)) return;
+
+  downloadState.set(fileId, { received: 0, total: 0, error: false });
+  renderDownloadControl(book, container);
+
+  downloadBook(book, (received, total) => {
+    downloadState.set(fileId, { received, total, error: false });
+    refreshDownloadRowInPlace(fileId);
+  })
+    .then(() => {
+      downloadState.delete(fileId);
+      refreshDownloadRowInPlace(fileId);
+    })
+    .catch((err) => {
+      console.error(err);
+      downloadState.set(fileId, { received: 0, total: 0, error: true });
+      refreshDownloadRowInPlace(fileId);
+    });
 }
 
 function renderLibrary() {
@@ -375,6 +439,7 @@ function renderLibrary() {
     removeBtn.className = 'btn ghost small';
     removeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (!confirm(`Remove "${book.name}" from your library? You can add it back from the Drive folder later.`)) return;
       removeBook(book.audioFileId);
       renderLibrary();
     });
