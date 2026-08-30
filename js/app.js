@@ -304,7 +304,10 @@ const downloadState = new Map(); // fileId -> { received, total, error }
 const booksByFileId = new Map();
 
 function downloadLabelText(state) {
-  if (state.error) return 'Download failed — retry';
+  if (state.error) {
+    if (state.notSignedIn) return 'Not signed in';
+    return state.message ? `Download failed: ${state.message}` : 'Download failed — retry';
+  }
   return state.total
     ? `Downloading… ${Math.round((state.received / state.total) * 100)}%`
     : `Downloading… ${formatBytes(state.received)}`;
@@ -337,15 +340,26 @@ async function renderDownloadControl(book, container) {
     label.textContent = downloadLabelText(state);
     container.appendChild(label);
     if (state.error) {
-      const retryBtn = document.createElement('button');
-      retryBtn.textContent = 'Retry';
-      retryBtn.className = 'btn ghost small';
-      retryBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        downloadState.delete(fileId);
-        startDownload(book, container);
-      });
-      container.appendChild(retryBtn);
+      if (state.notSignedIn) {
+        const signInBtn = document.createElement('button');
+        signInBtn.textContent = 'Sign in';
+        signInBtn.className = 'btn ghost small';
+        signInBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          requestAccessToken();
+        });
+        container.appendChild(signInBtn);
+      } else {
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = 'Retry';
+        retryBtn.className = 'btn ghost small';
+        retryBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          downloadState.delete(fileId);
+          startDownload(book, container);
+        });
+        container.appendChild(retryBtn);
+      }
     }
     return;
   }
@@ -391,9 +405,24 @@ function startDownload(book, container) {
     })
     .catch((err) => {
       console.error(err);
-      downloadState.set(fileId, { received: 0, total: 0, error: true });
+      const notSignedIn = err.message === 'Sign in first';
+      downloadState.set(fileId, { received: 0, total: 0, error: true, notSignedIn, message: err.message });
       refreshDownloadRowInPlace(fileId);
     });
+}
+
+// Called once sign-in succeeds (see handleTokenRefreshed below) — any
+// download that stalled out only because there was no token yet resumes on
+// its own rather than leaving the person to notice and tap Retry manually.
+function resumeDownloadsPendingSignIn() {
+  for (const [fileId, state] of downloadState) {
+    if (!state.notSignedIn) continue;
+    const book = booksByFileId.get(fileId);
+    if (!book) continue;
+    downloadState.delete(fileId);
+    const container = els.libraryList.querySelector(`.library-item-download[data-file-id="${fileId}"]`);
+    if (container) startDownload(book, container);
+  }
 }
 
 // Closes every open item menu — called when a menu button is clicked (so
@@ -598,6 +627,7 @@ function handleTokenRefreshed() {
   els.userStatus.textContent = 'Signed in';
   els.libraryView.classList.remove('hidden');
   renderLibrary();
+  resumeDownloadsPendingSignIn();
   syncLibrary();
 
   if (!els.playerView.classList.contains('hidden')) {
