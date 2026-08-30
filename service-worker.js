@@ -8,15 +8,23 @@ import { getCachedFile } from './js/file-cache.js';
 // the app-update banner (see app.js's controllerchange handler) never fires,
 // no matter what changed elsewhere. This line existing, and being touched
 // every time, is what makes that detection reliable.
-const APP_VERSION = '2026-08-30-3';
+const APP_VERSION = '2026-08-30-4';
 
 // This service worker proxies Google Drive's byte-range media requests
 // (handleDriveMedia below) with the user's OAuth token attached, UNLESS the
 // file has been downloaded for offline use (js/downloader.js), in which case
 // it's served straight from the local blob cache — no token, no network,
-// no re-auth prompt. It does not cache the app shell. Every other request is
-// left alone (no respondWith call) and goes straight to the network, so app
-// updates are never masked by a stale cache.
+// no re-auth prompt.
+//
+// For every other same-origin request (the HTML page itself, and every
+// same-origin JS/CSS/etc. it loads), this forces a network fetch that
+// bypasses the browser's own HTTP cache — see the fetch handler below.
+// GitHub Pages sets several minutes of Cache-Control on static files, and an
+// installed PWA can go a long time between genuine reloads, so without this
+// the browser could keep serving an old cached app.js/index.html/etc. even
+// on a page load that otherwise looked "fresh" (new HTML, stale JS under
+// it) — a more fundamental gap than just this worker script going stale,
+// which APP_VERSION above handles separately.
 let memoryToken = null;
 const sizeCache = new Map();
 
@@ -44,11 +52,21 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  const match = url.pathname.match(/\/drive-(?:audio|video)\/([^/]+)$/);
-  if (!match) return;
 
-  const mime = url.searchParams.get('mime') || 'audio/mp4';
-  event.respondWith(handleDriveMedia(match[1], event.request, mime));
+  const match = url.pathname.match(/\/drive-(?:audio|video)\/([^/]+)$/);
+  if (match) {
+    const mime = url.searchParams.get('mime') || 'audio/mp4';
+    event.respondWith(handleDriveMedia(match[1], event.request, mime));
+    return;
+  }
+
+  // Everything else that's actually part of this app (not Google's own
+  // accounts.google.com/apis.google.com scripts, left to their own normal
+  // caching) — always re-fetch from network, ignoring whatever cached copy
+  // the browser's HTTP cache thinks is still valid.
+  if (url.origin === self.location.origin) {
+    event.respondWith(fetch(event.request, { cache: 'no-store' }));
+  }
 });
 
 async function getToken() {
