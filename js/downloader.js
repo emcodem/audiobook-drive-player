@@ -9,6 +9,7 @@ import { getAccessToken } from './auth.js';
 import { putCachedFile, deleteCachedFile, hasCachedFile, getCachedFile, updateCachedFileFields } from './file-cache.js';
 import { fetchChapters } from './chapters.js';
 import { parseChaptersFromByteSource, blobByteSource } from './mp4-chapters.js';
+import { markDownloaded, unmarkDownloaded } from './storage.js';
 
 export { hasCachedFile } from './file-cache.js';
 
@@ -90,10 +91,12 @@ export async function downloadBook(book, onProgress) {
     chapters: chapters || null,
     thumbnailBlob: thumbnailBlob || null,
   });
+  markDownloaded(fileId);
 }
 
 export async function removeDownload(fileId) {
   await deleteCachedFile(fileId);
+  unmarkDownloaded(fileId);
 }
 
 // Re-fetches just the chapter sidecar and cover thumbnail for a book that's

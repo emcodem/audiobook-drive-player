@@ -34,6 +34,7 @@ export function removeBook(audioFileId) {
   // (see HISTORY_LIMIT below).
   localStorage.removeItem(positionKey(audioFileId));
   localStorage.removeItem(historyKey(audioFileId));
+  unmarkDownloaded(audioFileId);
 }
 
 function positionKey(fileId) {
@@ -88,4 +89,38 @@ export function getLibraryFolderId() {
 
 export function setLibraryFolderId(folderId) {
   localStorage.setItem(LIBRARY_FOLDER_KEY, folderId);
+}
+
+// A lightweight ledger of "this book's download succeeded at some point",
+// kept in localStorage — deliberately separate from the actual audio blob
+// in IndexedDB (see file-cache.js) — so that if the blob storage gets
+// silently cleared by the browser (storage-pressure eviction, iOS's 7-day
+// unused-data eviction, etc.), that loss is DETECTABLE instead of just
+// looking identical to "never downloaded". See app.js's renderDownloadControl.
+const DOWNLOADED_LEDGER_KEY = 'adp.downloadedIds.v1';
+
+function getDownloadedLedger() {
+  try {
+    return JSON.parse(localStorage.getItem(DOWNLOADED_LEDGER_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export function markDownloaded(fileId) {
+  const ledger = getDownloadedLedger();
+  if (!ledger.includes(fileId)) {
+    ledger.push(fileId);
+    localStorage.setItem(DOWNLOADED_LEDGER_KEY, JSON.stringify(ledger));
+  }
+}
+
+export function unmarkDownloaded(fileId) {
+  const ledger = getDownloadedLedger();
+  const next = ledger.filter((id) => id !== fileId);
+  if (next.length !== ledger.length) localStorage.setItem(DOWNLOADED_LEDGER_KEY, JSON.stringify(next));
+}
+
+export function wasDownloaded(fileId) {
+  return getDownloadedLedger().includes(fileId);
 }

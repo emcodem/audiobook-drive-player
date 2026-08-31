@@ -6,6 +6,7 @@ import {
   getHistory,
   getLibraryFolderId,
   setLibraryFolderId,
+  wasDownloaded,
 } from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
@@ -375,7 +376,8 @@ async function renderDownloadControl(book, container) {
   }
 
   const cached = await hasCachedFile(fileId);
-  logDebug(`download-ui: "${book.name || fileId}" fileId=${fileId} -> cached=${cached}`);
+  const evicted = !cached && wasDownloaded(fileId);
+  logDebug(`download-ui: "${book.name || fileId}" fileId=${fileId} -> cached=${cached}${evicted ? ' (was downloaded before — data appears to have been cleared)' : ''}`);
   container.innerHTML = '';
 
   if (cached) {
@@ -386,8 +388,15 @@ async function renderDownloadControl(book, container) {
     return;
   }
 
+  if (evicted) {
+    const label = document.createElement('span');
+    label.className = 'muted small';
+    label.textContent = 'Download lost — ';
+    container.appendChild(label);
+  }
+
   const dlBtn = document.createElement('button');
-  dlBtn.textContent = 'Download';
+  dlBtn.textContent = evicted ? 'Redownload' : 'Download';
   dlBtn.className = 'btn ghost small';
   dlBtn.addEventListener('click', (e) => {
     e.stopPropagation();
