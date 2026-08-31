@@ -650,7 +650,9 @@ els.keepListeningBtn.addEventListener('click', () => {
 // warning that the session is about to expire would just be a false alarm
 // interruption for something that was never going to need it.
 window.addEventListener('adp:token-expiring', async () => {
-  if (player.book && (await hasCachedFile(player.book.audioFileId))) return;
+  const cached = player.book ? await hasCachedFile(player.book.audioFileId) : false;
+  logDebug(`token-expiring: book="${player.book ? player.book.name : '(none open)'}" cached=${cached} -> ${cached ? 'suppressing banner' : 'showing banner'}`);
+  if (cached) return;
   els.tokenBanner.classList.remove('hidden');
 });
 
