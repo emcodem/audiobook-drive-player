@@ -12,7 +12,7 @@ import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
 import { downloadBook, removeDownload, refreshMetadata, hasCachedFile } from './downloader.js';
-import { getDebugEntries, clearDebugEntries, onDebugLog } from './debug-log.js';
+import { getDebugEntries, clearDebugEntries, onDebugLog, logDebug } from './debug-log.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
@@ -641,7 +641,12 @@ els.keepListeningBtn.addEventListener('click', () => {
   els.tokenBanner.classList.add('hidden');
 });
 
-window.addEventListener('adp:token-expiring', () => {
+// If the currently open book is fully downloaded, its playback doesn't need
+// the Google session at all (audio, chapters, and cover are all local) — so
+// warning that the session is about to expire would just be a false alarm
+// interruption for something that was never going to need it.
+window.addEventListener('adp:token-expiring', async () => {
+  if (player.book && (await hasCachedFile(player.book.audioFileId))) return;
   els.tokenBanner.classList.remove('hidden');
 });
 
@@ -676,6 +681,32 @@ if (hasLocalLibrary) {
 }
 
 initAuth({ onTokenChange: handleTokenRefreshed });
+
+// Without an explicit "persist" grant, mobile browsers can clear IndexedDB
+// data (i.e. downloaded books — see file-cache.js) under storage pressure
+// or low site engagement, with no warning — which is what "downloaded
+// content vanished" almost always turns out to be. This doesn't guarantee
+// downloads survive (the browser can still refuse, or a person can clear
+// site data manually), but it meaningfully reduces the chance of silent
+// automatic eviction, and either way the result is logged so it's visible
+// via the Debug panel instead of being an invisible background fact.
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted().then((already) => {
+    if (already) {
+      logDebug('storage: already persisted — downloads are protected from automatic eviction.');
+      return;
+    }
+    navigator.storage.persist().then((granted) => {
+      logDebug(
+        granted
+          ? 'storage: persistence granted — downloads are now protected from automatic eviction.'
+          : 'storage: persistence NOT granted by the browser — downloaded books may be cleared automatically under storage pressure.'
+      );
+    });
+  });
+} else {
+  logDebug('storage: the Persistent Storage API is not available in this browser.');
+}
 
 if ('serviceWorker' in navigator) {
   // updateViaCache: 'none' makes the browser always re-fetch this file (and

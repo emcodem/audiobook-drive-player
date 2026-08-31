@@ -2,6 +2,8 @@
 // (downloads into it) and the service worker (serves playback from it). Once
 // a file is cached, drive-audio requests for it never need a Drive API call
 // or an access token again — see the cache-first check in service-worker.js.
+import { logDebug } from './debug-log.js';
+
 const DB_NAME = 'adp-file-cache';
 const STORE = 'files';
 
@@ -10,7 +12,13 @@ function openDb() {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'fileId' });
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      logDebug(`file-cache: indexedDB.open failed: ${req.error}`);
+      reject(req.error);
+    };
+    req.onblocked = () => {
+      logDebug('file-cache: indexedDB.open is blocked by another open connection/tab.');
+    };
   });
 }
 

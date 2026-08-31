@@ -8,7 +8,7 @@ import { getCachedFile } from './js/file-cache.js';
 // the app-update banner (see app.js's controllerchange handler) never fires,
 // no matter what changed elsewhere. This line existing, and being touched
 // every time, is what makes that detection reliable.
-const APP_VERSION = '2026-08-30-6';
+const APP_VERSION = '2026-08-30-7';
 
 // This service worker proxies Google Drive's byte-range media requests
 // (handleDriveMedia below) with the user's OAuth token attached, UNLESS the
