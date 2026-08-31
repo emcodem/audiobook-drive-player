@@ -32,6 +32,23 @@ export class Player {
     window.addEventListener('beforeunload', () => this._savePosition());
   }
 
+  // Snapshot of what the <audio> element actually has buffered right now —
+  // useful for the Debug panel's "Buffered" button when diagnosing whether
+  // playback is coming from a real source (cache or live stream) versus
+  // just coasting on data the browser already had in memory from earlier.
+  getBufferedInfo() {
+    const buf = this.audioEl.buffered;
+    const ranges = [];
+    for (let i = 0; i < buf.length; i++) {
+      ranges.push({ start: buf.start(i), end: buf.end(i) });
+    }
+    return {
+      ranges,
+      currentTime: this.audioEl.currentTime,
+      duration: this.audioEl.duration,
+    };
+  }
+
   async load(book) {
     this.book = book;
     this.chapters = [];

@@ -51,6 +51,7 @@ const els = {
   debugLogBtn: document.getElementById('debugLogBtn'),
   debugLogPanel: document.getElementById('debugLogPanel'),
   debugLogContent: document.getElementById('debugLogContent'),
+  debugLogBufferedBtn: document.getElementById('debugLogBufferedBtn'),
   debugLogCopyBtn: document.getElementById('debugLogCopyBtn'),
   debugLogClearBtn: document.getElementById('debugLogClearBtn'),
   debugLogCloseBtn: document.getElementById('debugLogCloseBtn'),
@@ -774,6 +775,15 @@ els.debugLogClearBtn.addEventListener('click', () => {
   clearDebugEntries();
   renderDebugLog();
 });
+els.debugLogBufferedBtn.addEventListener('click', () => {
+  const info = player.getBufferedInfo();
+  const rangesStr = info.ranges.length
+    ? info.ranges.map((r) => `${r.start.toFixed(1)}–${r.end.toFixed(1)}s`).join(', ')
+    : '(none)';
+  const durationStr = Number.isFinite(info.duration) ? `${info.duration.toFixed(1)}s` : 'unknown';
+  logDebug(`player: buffered=[${rangesStr}] currentTime=${info.currentTime.toFixed(1)}s duration=${durationStr}`);
+});
+
 els.debugLogCopyBtn.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(els.debugLogContent.textContent);
