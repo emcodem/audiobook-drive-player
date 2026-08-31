@@ -271,6 +271,18 @@ async function parseChapterTextTrack(byteSource, chapterTrak) {
   return chapters;
 }
 
+// Neither embedded format stores a chapter's end time directly (unlike the
+// sidecar JSON, which gets it from ffprobe) — only where the NEXT chapter
+// starts. Without an `end`, updateScrubber() (app.js) can't tell where the
+// current chapter stops and falls back to the whole file's duration, which
+// is what made the scrubber look like it spanned the entire book instead of
+// just the current chapter. The last chapter is deliberately left without
+// an `end` — that fallback-to-full-duration behavior is exactly correct for
+// it, since its real end IS the end of the file.
+function withDerivedEndTimes(chapters) {
+  return chapters.map((c, i) => (i + 1 < chapters.length ? { ...c, end: chapters[i + 1].start } : c));
+}
+
 // ---- Entry point ------------------------------------------------------
 
 export async function parseChaptersFromByteSource(byteSource) {
@@ -294,7 +306,7 @@ export async function parseChaptersFromByteSource(byteSource) {
         const chapters = await parseChplBox(byteSource, chpl);
         if (chapters.length) {
           logDebug(`mp4-chapters: found ${chapters.length} chapter(s) via the "chpl" atom.`);
-          return { chapters };
+          return { chapters: withDerivedEndTimes(chapters) };
         }
       }
     }
@@ -326,7 +338,7 @@ export async function parseChaptersFromByteSource(byteSource) {
         const chapters = await parseChapterTextTrack(byteSource, candidate);
         if (chapters && chapters.length) {
           logDebug(`mp4-chapters: found ${chapters.length} chapter(s) via the QuickTime chapter text-track method.`);
-          return { chapters };
+          return { chapters: withDerivedEndTimes(chapters) };
         }
       }
     }
