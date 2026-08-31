@@ -13,6 +13,7 @@ import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './cli
 import { listFilesRecursive } from './drive.js';
 import { downloadBook, removeDownload, refreshMetadata, hasCachedFile } from './downloader.js';
 import { getDebugEntries, clearDebugEntries, onDebugLog, logDebug } from './debug-log.js';
+import { APP_VERSION } from './version.js';
 
 const PLACEHOLDER_COVER = './icons/icon-192.png';
 
@@ -28,6 +29,7 @@ const els = {
   syncStatusMsg: document.getElementById('syncStatusMsg'),
   libraryList: document.getElementById('libraryList'),
   emptyLibraryMsg: document.getElementById('emptyLibraryMsg'),
+  appVersionMsg: document.getElementById('appVersionMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
   playerTitle: document.getElementById('playerTitle'),
   scrubber: document.getElementById('scrubber'),
@@ -679,6 +681,9 @@ if (hasLocalLibrary) {
   els.signInTopBtn.classList.remove('hidden');
   renderLibrary();
 }
+
+els.appVersionMsg.textContent = `Version ${APP_VERSION}`;
+logDebug(`app: running version ${APP_VERSION}`);
 
 initAuth({ onTokenChange: handleTokenRefreshed });
 

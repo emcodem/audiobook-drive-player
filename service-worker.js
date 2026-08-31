@@ -1,14 +1,11 @@
 import { getStoredToken } from './js/token-store.js';
 import { getCachedFile } from './js/file-cache.js';
+import { APP_VERSION } from './js/version.js';
 
-// Bumped on every deploy that changes anything user-facing (even files this
-// worker doesn't otherwise touch, like app.js or index.html). The browser's
-// service-worker update check is a byte-for-byte comparison of THIS file —
-// if it's identical to what's already installed, no update is detected and
-// the app-update banner (see app.js's controllerchange handler) never fires,
-// no matter what changed elsewhere. This line existing, and being touched
-// every time, is what makes that detection reliable.
-const APP_VERSION = '2026-08-30-7';
+// APP_VERSION (see version.js) is a statically imported dependency of this
+// script, so the browser's byte-for-byte update check covers it too —
+// bumping version.js is enough to make a new deploy detectable, without
+// needing to also touch this file by hand every time.
 
 // This service worker proxies Google Drive's byte-range media requests
 // (handleDriveMedia below) with the user's OAuth token attached, UNLESS the
