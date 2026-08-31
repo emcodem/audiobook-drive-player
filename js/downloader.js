@@ -8,8 +8,21 @@
 import { getAccessToken } from './auth.js';
 import { putCachedFile, deleteCachedFile, hasCachedFile, getCachedFile, updateCachedFileFields } from './file-cache.js';
 import { fetchChapters } from './chapters.js';
+import { parseChaptersFromByteSource, blobByteSource } from './mp4-chapters.js';
 
 export { hasCachedFile } from './file-cache.js';
+
+// Prefers the sidecar (it can hold manually-curated chapters that don't
+// necessarily match the file's embedded ones), but falls back to parsing
+// chapters directly out of the audio file itself — see mp4-chapters.js —
+// when there's no sidecar or it came back empty. Runs against the local
+// blob, so this costs no extra network call.
+async function resolveChapters(chaptersFileId, blob) {
+  const sidecar = await fetchChapters(chaptersFileId);
+  if (sidecar) return sidecar.chapters;
+  const embedded = await parseChaptersFromByteSource(blobByteSource(blob));
+  return embedded ? embedded.chapters : null;
+}
 
 // Best-effort: a book with no chapter sidecar, or a thumbnail fetch that
 // fails for any reason, shouldn't block the download — the audio itself is
@@ -57,8 +70,8 @@ export async function downloadBook(book, onProgress) {
 
   const blob = new Blob(chunks, { type: mimeType });
 
-  const [chapterData, thumbnailBlob] = await Promise.all([
-    fetchChapters(book.chaptersFileId),
+  const [chapters, thumbnailBlob] = await Promise.all([
+    resolveChapters(book.chaptersFileId, blob),
     fetchThumbnailBlob(fileId, token),
   ]);
 
@@ -69,12 +82,12 @@ export async function downloadBook(book, onProgress) {
     size: blob.size,
     name: book.name,
     downloadedAt: Date.now(),
-    // Stored even when null/absent (no sidecar, no thumbnail) so the cache
-    // record is authoritative — the read side (chapters.js/thumbnails.js)
-    // trusts "this book is downloaded" to mean "don't bother checking the
-    // network for this", rather than treating a missing value as "not
-    // fetched yet".
-    chapters: chapterData ? chapterData.chapters : null,
+    // Stored even when null/absent (no sidecar, no embedded chapters found,
+    // no thumbnail) so the cache record is authoritative — the read side
+    // (chapters.js/thumbnails.js) trusts "this book is downloaded" to mean
+    // "don't bother checking further for this", rather than treating a
+    // missing value as "not fetched yet".
+    chapters: chapters || null,
     thumbnailBlob: thumbnailBlob || null,
   });
 }
@@ -95,13 +108,13 @@ export async function refreshMetadata(book) {
   const existing = await getCachedFile(book.audioFileId);
   if (!existing) throw new Error('This book is not downloaded');
 
-  const [chapterData, thumbnailBlob] = await Promise.all([
-    fetchChapters(book.chaptersFileId),
+  const [chapters, thumbnailBlob] = await Promise.all([
+    resolveChapters(book.chaptersFileId, existing.blob),
     fetchThumbnailBlob(book.audioFileId, token),
   ]);
 
   await updateCachedFileFields(book.audioFileId, {
-    chapters: chapterData ? chapterData.chapters : null,
+    chapters: chapters || null,
     thumbnailBlob: thumbnailBlob || null,
   });
 }

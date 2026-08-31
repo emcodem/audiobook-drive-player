@@ -1,6 +1,7 @@
 import { getAccessToken } from './auth.js';
 import { getCachedFile } from './file-cache.js';
 import { logDebug } from './debug-log.js';
+import { parseChaptersFromByteSource, blobByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -46,19 +47,35 @@ export async function fetchChapters(chaptersFileId) {
   }
 }
 
-// Cache-first read used by the player: if this book was downloaded for
-// offline use, its chapters (or the fact that it has none) were captured at
-// download time — see downloader.js — so this trusts that record instead of
-// hitting the network at all, even when a chaptersFileId is present. Only
-// falls back to fetchChapters for a book that isn't downloaded.
+// Cache-first read used by the player, now with an embedded-chapter fallback
+// (see mp4-chapters.js) on both paths: the sidecar (fetchChapters, above)
+// isn't the only possible source — most audiobook files that have chapters
+// at all actually embed them directly in the container, which is exactly
+// what generate-chapters.ps1's ffprobe pass originally read them out of to
+// build the sidecar in the first place. Parsing that directly here means a
+// working sidecar is no longer required at all: for a downloaded book, it's
+// parsed straight out of the local blob (zero network); for a streaming
+// book, via small Range requests through the same drive-audio proxy used
+// for playback.
 export async function loadChapters(book) {
   const cached = await getCachedFile(book.audioFileId);
   if (cached) {
-    if (!cached.chapters || !cached.chapters.length) {
-      logDebug(`loadChapters: "${book.name}" is downloaded, but no chapters were captured at download time (see downloadBook's fetchChapters call for why).`);
-      return null;
-    }
-    return { chapters: cached.chapters };
+    if (cached.chapters && cached.chapters.length) return { chapters: cached.chapters };
+    logDebug(`loadChapters: "${book.name}" downloaded but no sidecar chapters captured — trying to parse embedded chapters from the local audio file.`);
+    return parseChaptersFromByteSource(blobByteSource(cached.blob));
   }
-  return fetchChapters(book.chaptersFileId);
+
+  const sidecar = await fetchChapters(book.chaptersFileId);
+  if (sidecar) return sidecar;
+
+  try {
+    const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
+    const url = `./drive-audio/${book.audioFileId}?mime=${mime}`;
+    logDebug(`loadChapters: "${book.name}" has no sidecar chapters — trying to parse embedded chapters via Range requests.`);
+    const byteSource = await createHttpRangeByteSource(url);
+    return await parseChaptersFromByteSource(byteSource);
+  } catch (err) {
+    logDebug(`loadChapters: embedded-chapter parse via network failed: ${err}`);
+    return null;
+  }
 }
