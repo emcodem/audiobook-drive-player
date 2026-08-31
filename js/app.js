@@ -568,9 +568,18 @@ function renderLibrary() {
 }
 
 async function openPlayer(book) {
+  const isSameBookAlreadyOpen = player.book && player.book.audioFileId === book.audioFileId;
   currentBook = book;
   els.libraryView.classList.add('hidden');
   els.playerView.classList.remove('hidden');
+
+  // Returning to a book that's already loaded (and possibly still playing,
+  // e.g. after browsing back to the library and tapping the same book
+  // again) — just show the player view as-is. Reassigning the <audio>
+  // element's src via player.load() below would restart it from scratch,
+  // audibly interrupting playback that was already fine.
+  if (isSameBookAlreadyOpen) return;
+
   els.playerTitle.textContent = book.name;
   els.playPauseBtn.textContent = 'Play';
   els.sleepSelect.value = '0';
@@ -583,7 +592,6 @@ async function openPlayer(book) {
 }
 
 els.backToLibraryBtn.addEventListener('click', () => {
-  player.pause();
   els.playerView.classList.add('hidden');
   els.libraryView.classList.remove('hidden');
 });
