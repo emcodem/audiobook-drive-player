@@ -374,6 +374,7 @@ async function renderDownloadControl(book, container) {
   }
 
   const cached = await hasCachedFile(fileId);
+  logDebug(`download-ui: "${book.name || fileId}" fileId=${fileId} -> cached=${cached}`);
   container.innerHTML = '';
 
   if (cached) {

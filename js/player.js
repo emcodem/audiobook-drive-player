@@ -1,6 +1,7 @@
 import { getPosition, setPosition, addHistoryEntry, getHistory } from './storage.js';
 import { loadChapters } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
+import { logDebug } from './debug-log.js';
 
 const SAVE_INTERVAL_MS = 8000;
 
@@ -38,6 +39,8 @@ export class Player {
     this._chaptersReady = false;
     this._resumeApplied = false;
     this.setSleepTimer(0);
+
+    logDebug(`player: loading "${book.name}" audioFileId=${book.audioFileId} chaptersFileId=${book.chaptersFileId || '(none)'}`);
 
     const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
     this.audioEl.src = `./drive-audio/${book.audioFileId}?mime=${mime}`;
