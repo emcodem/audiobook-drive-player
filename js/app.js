@@ -412,19 +412,33 @@ function startDownload(book, container) {
   const fileId = book.audioFileId;
   if (downloadState.has(fileId)) return;
 
+  logDebug(`download: starting "${book.name}" (fileId=${fileId}).`);
   downloadState.set(fileId, { received: 0, total: 0, error: false });
   renderDownloadControl(book, container);
 
+  let lastLoggedPct = -1;
   downloadBook(book, (received, total) => {
     downloadState.set(fileId, { received, total, error: false });
     refreshDownloadRowInPlace(fileId);
+    // Throttled to every ~10% so a normal download doesn't flood the log,
+    // but progress is still traceable if it stalls partway — the gap
+    // between the last logged percentage and total silence is the signal.
+    if (total) {
+      const pct = Math.floor((received / total) * 100);
+      if (pct >= lastLoggedPct + 10) {
+        lastLoggedPct = pct;
+        logDebug(`download: "${book.name}" ${pct}% (${formatBytes(received)} / ${formatBytes(total)}).`);
+      }
+    }
   })
     .then(() => {
+      logDebug(`download: "${book.name}" completed successfully.`);
       downloadState.delete(fileId);
       refreshDownloadRowInPlace(fileId);
     })
     .catch((err) => {
       console.error(err);
+      logDebug(`download: "${book.name}" failed: ${err && err.stack ? err.stack : err}`);
       const notSignedIn = err.message === 'Sign in first';
       downloadState.set(fileId, { received: 0, total: 0, error: true, notSignedIn, message: err.message });
       refreshDownloadRowInPlace(fileId);
@@ -705,6 +719,16 @@ if (hasLocalLibrary) {
 
 els.appVersionMsg.textContent = `Version ${APP_VERSION}`;
 logDebug(`app: running version ${APP_VERSION}`);
+
+// Correlates background/foreground transitions with anything else in the
+// log (e.g. a download that stalls right when the page goes hidden) —
+// Android in particular can throttle a page's ordinary JS/network activity
+// once it's not the visible tab, even while an already-playing <audio>
+// element is specifically exempted and keeps going, which could explain a
+// download silently freezing without ever erroring.
+document.addEventListener('visibilitychange', () => {
+  logDebug(`visibility: now ${document.visibilityState}`);
+});
 
 initAuth({ onTokenChange: handleTokenRefreshed });
 
