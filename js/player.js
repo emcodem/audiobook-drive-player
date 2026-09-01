@@ -150,7 +150,9 @@ export class Player {
   }
 
   play() {
-    this.audioEl.play();
+    this.audioEl.play().catch((err) => {
+      logDebug(`player: audioEl.play() was rejected for "${this.book ? this.book.name : '(no book)'}" — ${err && err.name ? err.name : err}: ${err && err.message ? err.message : ''}`);
+    });
   }
 
   pause() {
@@ -262,7 +264,32 @@ export class Player {
   // A mid-stream load failure most commonly means the access token expired
   // (the service worker's Drive proxy returns 401). Surface the same
   // "tap to keep listening" banner used for proactive expiry warnings.
+  // MediaError codes per the HTML spec — mapped to plain language since
+  // "code 2" means nothing on its own in a log.
+  _mediaErrorLabel(code) {
+    switch (code) {
+      case 1:
+        return 'MEDIA_ERR_ABORTED (loading was aborted)';
+      case 2:
+        return 'MEDIA_ERR_NETWORK (a network error occurred while loading)';
+      case 3:
+        return 'MEDIA_ERR_DECODE (the audio could not be decoded)';
+      case 4:
+        return 'MEDIA_ERR_SRC_NOT_SUPPORTED (the source could not be loaded — often means the underlying request failed, e.g. a non-2xx response from the drive-audio proxy)';
+      default:
+        return `unknown code ${code}`;
+    }
+  }
+
+  // Previously did nothing but fire the token-expiring banner — meaning any
+  // actual playback failure (a bad response from the drive-audio proxy, a
+  // network error, anything) was completely silent, with no way to tell
+  // what had actually gone wrong. Now logs the real MediaError first.
   _handlePlaybackError() {
+    const err = this.audioEl.error;
+    logDebug(
+      `player: playback error for "${this.book ? this.book.name : '(no book)'}" — ${err ? this._mediaErrorLabel(err.code) : '(no MediaError object available)'}`
+    );
     if (!this.book) return;
     window.dispatchEvent(new CustomEvent('adp:token-expiring'));
   }
