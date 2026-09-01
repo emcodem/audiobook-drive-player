@@ -1,5 +1,5 @@
 import { getPosition, setPosition, addHistoryEntry, getHistory } from './storage.js';
-import { loadChapters } from './chapters.js';
+import { loadChapters, parseChaptersInBackground } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
 import { logDebug } from './debug-log.js';
 import { verifyAndLogChunks } from './file-cache.js';
@@ -7,11 +7,15 @@ import { verifyAndLogChunks } from './file-cache.js';
 const SAVE_INTERVAL_MS = 8000;
 
 export class Player {
-  constructor({ audioEl, onChaptersLoaded, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
+  constructor({ audioEl, onChaptersLoaded, onChaptersParsing, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
     this.audioEl = audioEl;
     this.book = null;
     this.chapters = [];
     this.onChaptersLoaded = onChaptersLoaded || (() => {});
+    // Told true right when a background streaming chapter-parse starts (see
+    // load() below) and false once it settles (found something or not) —
+    // lets the UI show a "still parsing" state distinct from "no chapters".
+    this.onChaptersParsing = onChaptersParsing || (() => {});
     this.onTimeUpdate = onTimeUpdate || (() => {});
     this.onEnded = onEnded || (() => {});
     this.onSleepTimerEnded = onSleepTimerEnded || (() => {});
@@ -85,10 +89,33 @@ export class Player {
     // seek once).
     loadChapters(book).then((chapterData) => {
       if (this.book !== book) return; // a different book was opened meanwhile — this result is stale
-      this.chapters = chapterData ? chapterData.chapters : [];
+      const needsStreamParse = Boolean(chapterData && chapterData.streamParseNeeded);
+      this.chapters = (chapterData && chapterData.chapters) ? chapterData.chapters : [];
       this._chaptersReady = true;
+      // Signal "parsing" BEFORE the chapters-loaded callback below, so the
+      // chapter section shows "still parsing" rather than briefly flashing
+      // "no chapters" while this one resolves with nothing (yet).
+      if (needsStreamParse) this.onChaptersParsing(true);
       this.onChaptersLoaded(this.chapters);
       this._resume();
+
+      if (!needsStreamParse) return;
+
+      // Play from the full timeline in the meantime (already happening —
+      // playback never waited on this), and parse the embedded chapters in
+      // the background via streaming Range requests against the same URL
+      // already used for playback.
+      const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
+      const streamUrl = `./drive-audio/${book.audioFileId}?mime=${mime}`;
+      parseChaptersInBackground(book, streamUrl).then((bgResult) => {
+        if (this.book !== book) return; // a different book was opened meanwhile — drop this result
+        this.onChaptersParsing(false);
+        if (bgResult && bgResult.chapters && bgResult.chapters.length) {
+          this.chapters = bgResult.chapters;
+          this.onChaptersLoaded(this.chapters);
+          this._resume();
+        }
+      });
     });
   }
 

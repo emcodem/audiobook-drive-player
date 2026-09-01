@@ -1,7 +1,7 @@
 import { getAccessToken } from './auth.js';
 import { getCachedFile, updateCachedFileFields, chunkedByteSource } from './file-cache.js';
 import { logDebug } from './debug-log.js';
-import { parseChaptersFromByteSource } from './mp4-chapters.js';
+import { parseChaptersFromByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -81,6 +81,34 @@ export async function loadChapters(book) {
   const sidecar = await fetchChapters(book.chaptersFileId);
   if (sidecar) return sidecar;
 
-  logDebug(`loadChapters: "${book.name}" isn't downloaded and has no sidecar chapters — skipping embedded-chapter parsing over the network (it can mean one round-trip per chapter, which was adding real delay to playback start for a large chapter count). Download this book to get its embedded chapters without that cost.`);
+  logDebug(`loadChapters: "${book.name}" isn't downloaded and has no sidecar chapters — not parsing embedded chapters here (it can mean one round-trip per chapter, which would delay playback start for a large chapter count). Signalling the caller to run that parse as a background job instead, after playback has already started — see parseChaptersInBackground below.`);
+  return { streamParseNeeded: true };
+}
+
+// Same embedded-chapter parse loadChapters() runs against the local cache
+// for a downloaded book, but pointed at createHttpRangeByteSource(streamUrl)
+// (mp4-chapters.js) instead — i.e. live HTTP Range requests against the
+// book that's already streaming for playback. This is exactly the
+// per-chapter-round-trip cost loadChapters() deliberately declines to pay
+// before playback starts (see the streamParseNeeded case above); called
+// from here, by the player, *after* playback has already begun, it's fine
+// for this to take a while in the background. Never persisted — there's no
+// local cache entry to attach the result to for a book that isn't
+// downloaded, so it re-parses from scratch every time the book is opened
+// while streaming.
+export async function parseChaptersInBackground(book, streamUrl) {
+  let byteSource;
+  try {
+    byteSource = await createHttpRangeByteSource(streamUrl);
+  } catch (err) {
+    logDebug(`parseChaptersInBackground: "${book.name}" — could not set up Range access to the stream: ${err}`);
+    return null;
+  }
+  const result = await parseChaptersFromByteSource(byteSource);
+  if (result && result.chapters && result.chapters.length) {
+    logDebug(`parseChaptersInBackground: "${book.name}" — parsed ${result.chapters.length} embedded chapter(s) from the live stream in the background.`);
+    return result;
+  }
+  logDebug(`parseChaptersInBackground: "${book.name}" — background streaming parse finished with no embedded chapters found.`);
   return null;
 }

@@ -45,6 +45,7 @@ const els = {
   chapterList: document.getElementById('chapterList'),
   noChaptersMsg: document.getElementById('noChaptersMsg'),
   chaptersLoadingMsg: document.getElementById('chaptersLoadingMsg'),
+  chaptersParsingMsg: document.getElementById('chaptersParsingMsg'),
   historyList: document.getElementById('historyList'),
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
@@ -135,6 +136,11 @@ let currentBook = null;
 let clipsMap = {}; // chapter number -> Drive file id, from clips.js
 let currentClipFileId = null;
 let lastDisplayedChapterIdx = -2; // distinct from currentChapterIndex()'s -1 ("no chapter yet")
+// True while a background streaming chapter-parse is in flight (see
+// player.js's onChaptersParsing) — checked by renderChapters() so the "no
+// chapter data" message doesn't flash on before the parse has had a chance
+// to find anything.
+let chaptersParsingInBackground = false;
 
 const player = new Player({
   audioEl: els.audioEl,
@@ -144,6 +150,11 @@ const player = new Player({
     renderHistory();
     lastDisplayedChapterIdx = -2;
     updateNowPlayingChapter();
+  },
+  onChaptersParsing: (isParsing) => {
+    chaptersParsingInBackground = isParsing;
+    els.chaptersParsingMsg.classList.toggle('hidden', !isParsing);
+    els.noChaptersMsg.classList.toggle('hidden', isParsing || player.chapters.length > 0);
   },
   onTimeUpdate: (current, duration) => {
     updateScrubber(current, duration);
@@ -263,7 +274,7 @@ els.audioEl.addEventListener('loadedmetadata', () => {
 function renderChapters(chapters) {
   els.chaptersLoadingMsg.classList.add('hidden');
   els.chapterList.innerHTML = '';
-  els.noChaptersMsg.classList.toggle('hidden', chapters.length > 0);
+  els.noChaptersMsg.classList.toggle('hidden', chapters.length > 0 || chaptersParsingInBackground);
   chapters.forEach((ch, i) => {
     const li = document.createElement('li');
     li.textContent = `${ch.title || 'Chapter ' + (i + 1)} — ${formatTime(ch.start)}`;
@@ -625,6 +636,8 @@ async function openPlayer(book) {
   // still sitting there with no indication anything was happening.
   els.chapterList.innerHTML = '';
   els.noChaptersMsg.classList.add('hidden');
+  els.chaptersParsingMsg.classList.add('hidden');
+  chaptersParsingInBackground = false;
   els.chaptersLoadingMsg.classList.remove('hidden');
 
   await player.load(book);
