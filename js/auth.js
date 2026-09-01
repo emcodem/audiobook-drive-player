@@ -102,3 +102,28 @@ function scheduleExpiryWarning() {
     window.dispatchEvent(new CustomEvent('adp:token-expiring'));
   }, Math.max(warnInMs, 0));
 }
+
+// The setTimeout above is scheduled once, right after sign-in, for however
+// many minutes out the 5-minutes-before point is — but a backgrounded tab
+// (screen off, app switched away) gets its timers throttled or suspended by
+// the browser, especially over the long stretches typical of audiobook
+// listening. The timer can land much later than intended, or effectively
+// never fire before the token has actually expired — so the person only
+// finds out reactively, from a playback error, instead of with the 5-minute
+// notice this was supposed to give them. Re-checking the ACTUAL remaining
+// time (wall-clock expiresAt vs Date.now(), not a timer's own sense of
+// elapsed time) every time the tab becomes visible again catches that case:
+// coming back to a phone whose screen was off for 20 minutes immediately
+// re-evaluates and fires the same warning right away if the token is
+// already within (or past) the window, rather than waiting on a timer that
+// may never make it there.
+function checkExpirySoon() {
+  if (!expiresAt) return;
+  if (expiresAt - Date.now() <= 5 * 60 * 1000) {
+    window.dispatchEvent(new CustomEvent('adp:token-expiring'));
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkExpirySoon();
+});
