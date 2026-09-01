@@ -166,6 +166,45 @@ export async function deleteChunks(fileId, chunkCount) {
   }
 }
 
+// Checks which of a book's chunks actually exist, WITHOUT loading their
+// (potentially large) blob content — uses getKey() rather than get(), and
+// issues all the existence checks within a single transaction rather than
+// one open+transaction round trip per chunk, so this stays fast even for a
+// book with hundreds of chunks. Returns { total, missing: [indices] } —
+// missing.length === 0 means fully intact, missing.length === total means
+// completely gone, anything in between means a partial loss.
+export async function verifyChunksPresent(fileId, chunkCount) {
+  if (chunkCount === 0) return { total: 0, missing: [] };
+  const db = await openDb();
+  const missing = await new Promise((resolve, reject) => {
+    const tx = db.transaction(CHUNK_STORE, 'readonly');
+    const store = tx.objectStore(CHUNK_STORE);
+    const present = new Array(chunkCount).fill(false);
+    let pending = chunkCount;
+    let settled = false;
+    for (let i = 0; i < chunkCount; i++) {
+      const idx = i;
+      const req = store.getKey(chunkKey(fileId, idx));
+      req.onsuccess = () => {
+        present[idx] = req.result !== undefined;
+        pending--;
+        if (pending === 0 && !settled) {
+          settled = true;
+          resolve(present.reduce((acc, ok, i2) => (ok ? acc : [...acc, i2]), []));
+        }
+      };
+      req.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(req.error);
+        }
+      };
+    }
+  });
+  db.close();
+  return { total: chunkCount, missing };
+}
+
 // Assembles exactly the bytes in [start, end) from however many chunks that
 // range spans, WITHOUT reading any chunk outside that span. Returns null if
 // any needed chunk is missing (a partial/lost download) rather than
@@ -220,6 +259,26 @@ export async function putPartialMeta(record) {
 
 export async function deletePartialMeta(fileId) {
   await deleteRecord(PARTIAL_META_STORE, fileId);
+}
+
+// Checks every expected chunk of a downloaded book actually exists and logs
+// a clear, specific result — whether it's fully intact, completely gone, or
+// only some chunks are missing (which ones) — rather than a vague
+// "something's wrong somewhere" the next time a partial storage loss
+// happens. No-op (no log) for a book that isn't downloaded at all.
+export async function verifyAndLogChunks(book) {
+  const cached = await getCachedFile(book.audioFileId);
+  if (!cached || !cached.chunkCount) return;
+
+  const { total, missing } = await verifyChunksPresent(book.audioFileId, cached.chunkCount);
+  if (missing.length === 0) {
+    logDebug(`chunks-verify: "${book.name}" all ${total} chunk(s) present — fully intact.`);
+  } else if (missing.length === total) {
+    logDebug(`chunks-verify: "${book.name}" ALL ${total} chunk(s) are missing — the download is completely gone even though its record still exists.`);
+  } else {
+    const pct = ((missing.length / total) * 100).toFixed(0);
+    logDebug(`chunks-verify: "${book.name}" ${missing.length} of ${total} chunk(s) missing (${pct}%) — indices: [${missing.join(', ')}]. Unaffected sections still play from cache; affected sections need network/sign-in.`);
+  }
 }
 
 // Metadata for every cached file — used for a "manage downloads" view /

@@ -1,5 +1,5 @@
 import { getAccessToken } from './auth.js';
-import { getCachedFile, chunkedByteSource } from './file-cache.js';
+import { getCachedFile, updateCachedFileFields, chunkedByteSource } from './file-cache.js';
 import { logDebug } from './debug-log.js';
 import { parseChaptersFromByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
 
@@ -64,7 +64,16 @@ export async function loadChapters(book) {
     if (cached.chapters && cached.chapters.length) return { chapters: cached.chapters };
     logDebug(`loadChapters: "${book.name}" downloaded but no sidecar chapters captured — trying to parse embedded chapters from the local cache.`);
     const byteSource = chunkedByteSource(book.audioFileId, cached.chunkSize, cached.size, cached.mimeType);
-    return parseChaptersFromByteSource(byteSource);
+    const result = await parseChaptersFromByteSource(byteSource);
+    if (result && result.chapters && result.chapters.length) {
+      // Persist this so every future open of the same book reuses it
+      // instead of re-parsing the container's chapter atoms from scratch
+      // each time — the parse itself is cheap, but there's no reason to
+      // repeat it once the answer is known.
+      await updateCachedFileFields(book.audioFileId, { chapters: result.chapters });
+      logDebug(`loadChapters: "${book.name}" — parsed chapters saved to the cache; future opens won't need to re-parse.`);
+    }
+    return result;
   }
 
   const sidecar = await fetchChapters(book.chaptersFileId);

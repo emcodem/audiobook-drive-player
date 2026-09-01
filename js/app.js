@@ -13,6 +13,7 @@ import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
 import { downloadBook, removeDownload, refreshMetadata, hasCachedFile } from './downloader.js';
+import { verifyAndLogChunks } from './file-cache.js';
 import { getDebugEntries, clearDebugEntries, onDebugLog, logDebug } from './debug-log.js';
 import { APP_VERSION } from './version.js';
 
@@ -771,6 +772,19 @@ if (navigator.storage && navigator.storage.estimate) {
     logDebug(`storage: usage=${formatBytes(usage)} quota=${formatBytes(quota)} (${pct}% used).`);
   });
 }
+
+// Checks every downloaded book's chunks (see file-cache.js's
+// verifyAndLogChunks), not just whichever one happens to be opened — so a
+// partial or total loss anywhere in the library is visible in the Debug log
+// right after launch, without needing to open each book individually to
+// find out. Sequential (one book at a time) rather than parallel, so a
+// large library doesn't burst a pile of IndexedDB transactions all at once.
+(async () => {
+  for (const book of getLibrary()) {
+    // eslint-disable-next-line no-await-in-loop
+    await verifyAndLogChunks(book);
+  }
+})();
 
 if ('serviceWorker' in navigator) {
   // updateViaCache: 'none' makes the browser always re-fetch this file (and

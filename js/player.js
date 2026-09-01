@@ -2,6 +2,7 @@ import { getPosition, setPosition, addHistoryEntry, getHistory } from './storage
 import { loadChapters } from './chapters.js';
 import { getThumbnail } from './thumbnails.js';
 import { logDebug } from './debug-log.js';
+import { verifyAndLogChunks } from './file-cache.js';
 
 const SAVE_INTERVAL_MS = 8000;
 
@@ -49,6 +50,15 @@ export class Player {
     };
   }
 
+  // Checks every expected chunk of a downloaded book actually exists (see
+  // file-cache.js's verifyAndLogChunks) and logs a clear, specific result —
+  // whether it's fully intact, completely gone, or only some chunks are
+  // missing (which ones), rather than a vague "something's wrong somewhere"
+  // the next time a partial storage loss happens.
+  async _verifyChunks(book) {
+    await verifyAndLogChunks(book);
+  }
+
   async load(book) {
     this.book = book;
     this.chapters = [];
@@ -58,6 +68,7 @@ export class Player {
     this.setSleepTimer(0);
 
     logDebug(`player: loading "${book.name}" audioFileId=${book.audioFileId} chaptersFileId=${book.chaptersFileId || '(none)'}`);
+    this._verifyChunks(book); // fire-and-forget — logs the result, doesn't block playback starting
 
     const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
     this.audioEl.src = `./drive-audio/${book.audioFileId}?mime=${mime}`;
