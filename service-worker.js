@@ -1,5 +1,5 @@
 import { getStoredToken } from './js/token-store.js';
-import { getCachedFile } from './js/file-cache.js';
+import { getCachedFile, getCachedRange } from './js/file-cache.js';
 import { APP_VERSION } from './js/version.js';
 
 // APP_VERSION (see version.js) is a statically imported dependency of this
@@ -107,8 +107,12 @@ function parseRange(rangeHeader, total) {
 // the response body itself is always readable once the preflight succeeds.
 async function handleDriveMedia(fileId, request, mime) {
   const cached = await getCachedFile(fileId);
-  if (cached && cached.blob) {
-    return respondFromCachedBlob(cached.blob, request, cached.mimeType || mime);
+  if (cached && cached.chunkCount) {
+    const fromCache = await respondFromCachedChunks(cached, request);
+    if (fromCache) return fromCache;
+    // A chunk needed for this range is missing (partial data loss) — fall
+    // through to the live network path below rather than failing outright,
+    // same as if the book had never been downloaded at all.
   }
 
   const token = await getToken();
@@ -149,20 +153,26 @@ async function handleDriveMedia(fileId, request, mime) {
 }
 
 // Same Range-handling contract as handleDriveMedia's network path above, but
-// sliced straight out of a locally cached Blob — no fetch, no token check.
-function respondFromCachedBlob(blob, request, mime) {
-  const total = blob.size;
+// assembled straight out of chunked local storage — no fetch, no token
+// check. Returns null (rather than an error Response) if a needed chunk is
+// missing, so the caller can fall back to the live network path instead of
+// failing a request outright over one lost piece.
+async function respondFromCachedChunks(cached, request) {
+  const total = cached.size;
   const range = parseRange(request.headers.get('Range'), total);
   const start = range ? range.start : 0;
   const end = range ? range.end : total - 1;
 
+  const blob = await getCachedRange(cached.fileId, start, end + 1, cached.chunkSize, cached.mimeType);
+  if (!blob) return null;
+
   const status = range ? 206 : 200;
   const headers = {
     'Accept-Ranges': 'bytes',
-    'Content-Type': mime,
+    'Content-Type': cached.mimeType,
     'Content-Length': String(end - start + 1),
   };
   if (range) headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
 
-  return new Response(blob.slice(start, end + 1, mime), { status, headers });
+  return new Response(blob, { status, headers });
 }

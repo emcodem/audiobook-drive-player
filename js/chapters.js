@@ -1,7 +1,7 @@
 import { getAccessToken } from './auth.js';
-import { getCachedFile } from './file-cache.js';
+import { getCachedFile, chunkedByteSource } from './file-cache.js';
 import { logDebug } from './debug-log.js';
-import { parseChaptersFromByteSource, blobByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
+import { parseChaptersFromByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -54,15 +54,17 @@ export async function fetchChapters(chaptersFileId) {
 // what generate-chapters.ps1's ffprobe pass originally read them out of to
 // build the sidecar in the first place. Parsing that directly here means a
 // working sidecar is no longer required at all: for a downloaded book, it's
-// parsed straight out of the local blob (zero network); for a streaming
-// book, via small Range requests through the same drive-audio proxy used
-// for playback.
+// parsed straight out of the local chunked cache (zero network, and never
+// assembles the whole file into memory as one Blob); for a streaming book,
+// via small Range requests through the same drive-audio proxy used for
+// playback.
 export async function loadChapters(book) {
   const cached = await getCachedFile(book.audioFileId);
   if (cached) {
     if (cached.chapters && cached.chapters.length) return { chapters: cached.chapters };
-    logDebug(`loadChapters: "${book.name}" downloaded but no sidecar chapters captured — trying to parse embedded chapters from the local audio file.`);
-    return parseChaptersFromByteSource(blobByteSource(cached.blob));
+    logDebug(`loadChapters: "${book.name}" downloaded but no sidecar chapters captured — trying to parse embedded chapters from the local cache.`);
+    const byteSource = chunkedByteSource(book.audioFileId, cached.chunkSize, cached.size, cached.mimeType);
+    return parseChaptersFromByteSource(byteSource);
   }
 
   const sidecar = await fetchChapters(book.chaptersFileId);

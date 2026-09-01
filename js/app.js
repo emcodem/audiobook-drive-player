@@ -758,6 +758,20 @@ if (navigator.storage && navigator.storage.persist) {
   logDebug('storage: the Persistent Storage API is not available in this browser.');
 }
 
+// Real usage-vs-quota numbers — the "persisted" flag above only reflects
+// Chrome's OWN internal eviction promise; it says nothing about whether the
+// device is actually low on space overall, which is a separate, real-world
+// factor in whether the OS itself intervenes on Chrome's storage
+// independent of anything the web platform can promise. Logged every
+// launch so a pattern (e.g. quota shrinking over time, or usage sitting
+// suspiciously close to quota right before a loss) is visible in hindsight.
+if (navigator.storage && navigator.storage.estimate) {
+  navigator.storage.estimate().then(({ usage, quota }) => {
+    const pct = quota ? ((usage / quota) * 100).toFixed(1) : '?';
+    logDebug(`storage: usage=${formatBytes(usage)} quota=${formatBytes(quota)} (${pct}% used).`);
+  });
+}
+
 if ('serviceWorker' in navigator) {
   // updateViaCache: 'none' makes the browser always re-fetch this file (and
   // its statically imported modules) from the network when checking for

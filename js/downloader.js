@@ -1,5 +1,5 @@
 // Downloads a book's full audio file once (requires a valid access token,
-// same as any other Drive call) and stores it in the local blob cache so
+// same as any other Drive call) and stores it in the local chunked cache so
 // playback afterward never needs the network or a token again — see the
 // cache-first check in service-worker.js. Also fetches the chapter sidecar
 // and cover thumbnail at the same time and caches those too (see chapters.js
@@ -12,32 +12,29 @@ import {
   hasCachedFile,
   getCachedFile,
   updateCachedFileFields,
-  getPartialDownload,
-  putPartialDownload,
-  deletePartialDownload,
+  putChunk,
+  deleteChunks,
+  getPartialMeta,
+  putPartialMeta,
+  deletePartialMeta,
+  chunkedByteSource,
+  CHUNK_SIZE,
 } from './file-cache.js';
 import { fetchChapters } from './chapters.js';
-import { parseChaptersFromByteSource, blobByteSource } from './mp4-chapters.js';
+import { parseChaptersFromByteSource } from './mp4-chapters.js';
 import { markDownloaded, unmarkDownloaded } from './storage.js';
 import { logDebug } from './debug-log.js';
 
 export { hasCachedFile } from './file-cache.js';
 
-// Partial progress is flushed to IndexedDB (see file-cache.js's PARTIAL_STORE)
-// every this many bytes, rather than after every small chunk — frequent tiny
-// writes would add overhead for no real benefit, since the whole point is
-// surviving a *network failure*, not every single read().
-const FLUSH_THRESHOLD = 20 * 1024 * 1024; // 20MB
-
 // Prefers the sidecar (it can hold manually-curated chapters that don't
 // necessarily match the file's embedded ones), but falls back to parsing
 // chapters directly out of the audio file itself — see mp4-chapters.js —
-// when there's no sidecar or it came back empty. Runs against the local
-// blob, so this costs no extra network call.
-async function resolveChapters(chaptersFileId, blob) {
+// when there's no sidecar or it came back empty.
+async function resolveChapters(chaptersFileId, byteSource) {
   const sidecar = await fetchChapters(chaptersFileId);
   if (sidecar) return sidecar.chapters;
-  const embedded = await parseChaptersFromByteSource(blobByteSource(blob));
+  const embedded = await parseChaptersFromByteSource(byteSource);
   return embedded ? embedded.chapters : null;
 }
 
@@ -61,13 +58,37 @@ async function fetchThumbnailBlob(fileId, token) {
   }
 }
 
-// Downloads a book's audio, resuming from whatever's already been saved if a
-// previous attempt didn't finish (network error, backgrounding, etc.) rather
-// than starting over from byte zero. Progress beyond what's already on disk
-// is periodically flushed to IndexedDB as it comes in (see FLUSH_THRESHOLD)
-// and — critically — flushed one more time in a `finally` if anything goes
-// wrong, so a failure never loses more than the last partial chunk still
-// sitting only in memory.
+// Consumes exactly `n` bytes from the front of a pending-bytes buffer
+// (an array of Uint8Arrays plus a running length), splitting a piece across
+// the boundary if needed. Used to cut the incoming stream at exact
+// CHUNK_SIZE boundaries regardless of how the underlying network chunks
+// happen to arrive.
+function takeBytes(pending, n) {
+  const out = [];
+  let remaining = n;
+  while (remaining > 0) {
+    const piece = pending.parts[0];
+    if (piece.length <= remaining) {
+      out.push(piece);
+      remaining -= piece.length;
+      pending.parts.shift();
+    } else {
+      out.push(piece.subarray(0, remaining));
+      pending.parts[0] = piece.subarray(remaining);
+      remaining = 0;
+    }
+  }
+  pending.len -= n;
+  return out;
+}
+
+// Downloads a book's audio in fixed-size chunks (see file-cache.js's
+// CHUNK_SIZE), resuming from however many complete chunks are already
+// stored if a previous attempt didn't finish, rather than starting over
+// from byte zero. Only whole, confirmed chunks are ever persisted — the
+// tail end of a failed attempt (less than one chunk's worth) is simply
+// re-fetched next time, which is a far smaller loss than restarting the
+// entire download.
 export async function downloadBook(book, onProgress) {
   const token = getAccessToken();
   if (!token) throw new Error('Sign in first');
@@ -75,15 +96,16 @@ export async function downloadBook(book, onProgress) {
   const fileId = book.audioFileId;
   const mimeType = book.audioMimeType || 'audio/mp4';
 
-  const existingPartial = await getPartialDownload(fileId);
-  let savedBlob = existingPartial ? existingPartial.blob : new Blob([], { type: mimeType });
-  const resuming = savedBlob.size > 0;
+  const existingPartial = await getPartialMeta(fileId);
+  let chunkCount = existingPartial ? existingPartial.chunkCount : 0;
+  let confirmedBytes = chunkCount * CHUNK_SIZE;
+  const resuming = confirmedBytes > 0;
   if (resuming) {
-    logDebug(`download: resuming "${book.name}" from ${savedBlob.size} bytes already saved.`);
+    logDebug(`download: resuming "${book.name}" from chunk ${chunkCount} (${confirmedBytes} bytes already saved).`);
   }
 
   const headers = { Authorization: `Bearer ${token}` };
-  if (resuming) headers.Range = `bytes=${savedBlob.size}-`;
+  if (resuming) headers.Range = `bytes=${confirmedBytes}-`;
 
   const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
 
@@ -93,15 +115,19 @@ export async function downloadBook(book, onProgress) {
   // Range-less request.
   if (res.status === 416) {
     logDebug(`download: resume point for "${book.name}" was rejected (416) — clearing it; the next attempt will start over.`);
-    await deletePartialDownload(fileId);
+    await deleteChunks(fileId, chunkCount);
+    await deletePartialMeta(fileId);
     throw new Error('Resume point rejected by server — please try downloading again');
   }
   if (resuming && res.status === 200) {
     // Server ignored the Range header and sent the full file again —
     // appending this on top of what we already saved would duplicate
-    // content, so discard the stale partial and treat this as fresh.
-    logDebug(`download: server ignored the Range request for "${book.name}" (got 200, not 206) — discarding the partial and starting over.`);
-    savedBlob = new Blob([], { type: mimeType });
+    // content, so discard the stale chunks and treat this as fresh.
+    logDebug(`download: server ignored the Range request for "${book.name}" (got 200, not 206) — discarding saved chunks and starting over.`);
+    await deleteChunks(fileId, chunkCount);
+    await deletePartialMeta(fileId);
+    chunkCount = 0;
+    confirmedBytes = 0;
   } else if (!res.ok && res.status !== 206) {
     throw new Error(`Download failed (${res.status})`);
   }
@@ -111,48 +137,60 @@ export async function downloadBook(book, onProgress) {
   if (contentRange && contentRange.includes('/')) {
     total = Number(contentRange.split('/')[1]) || 0;
   } else {
-    total = savedBlob.size + (Number(res.headers.get('Content-Length')) || 0);
+    total = confirmedBytes + (Number(res.headers.get('Content-Length')) || 0);
   }
 
   const reader = res.body.getReader();
-  let pendingChunks = [];
-  let pendingBytes = 0;
+  const pending = { parts: [], len: 0 };
 
-  async function flush() {
-    if (!pendingChunks.length) return;
-    savedBlob = new Blob([savedBlob, ...pendingChunks], { type: mimeType });
-    pendingChunks = [];
-    pendingBytes = 0;
-    await putPartialDownload({ fileId, blob: savedBlob, mimeType, name: book.name });
+  async function flushFullChunks() {
+    while (pending.len >= CHUNK_SIZE) {
+      const bytes = takeBytes(pending, CHUNK_SIZE);
+      // eslint-disable-next-line no-await-in-loop
+      await putChunk(fileId, chunkCount, new Blob(bytes, { type: mimeType }));
+      chunkCount++;
+      confirmedBytes += CHUNK_SIZE;
+      // eslint-disable-next-line no-await-in-loop
+      await putPartialMeta({ fileId, chunkCount, mimeType, name: book.name });
+    }
   }
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      pendingChunks.push(value);
-      pendingBytes += value.length;
-      if (onProgress) onProgress(savedBlob.size + pendingBytes, total);
-      if (pendingBytes >= FLUSH_THRESHOLD) await flush();
+      pending.parts.push(value);
+      pending.len += value.length;
+      if (onProgress) onProgress(confirmedBytes + pending.len, total);
+      if (pending.len >= CHUNK_SIZE) await flushFullChunks();
     }
-    await flush();
   } catch (err) {
-    await flush(); // preserve whatever arrived before the failure, for next time's resume
+    logDebug(`download: "${book.name}" failed mid-stream — ${chunkCount} whole chunk(s) already saved and will be resumed from next time.`);
     throw err;
   }
 
-  const blob = savedBlob;
+  // Whatever's left (less than one full chunk) is the final, possibly
+  // smaller chunk — only written now that the stream has genuinely ended.
+  if (pending.len > 0) {
+    await putChunk(fileId, chunkCount, new Blob(pending.parts, { type: mimeType }));
+    chunkCount++;
+    confirmedBytes += pending.len;
+    pending.parts = [];
+    pending.len = 0;
+  }
 
+  const byteSource = chunkedByteSource(fileId, CHUNK_SIZE, confirmedBytes, mimeType);
   const [chapters, thumbnailBlob] = await Promise.all([
-    resolveChapters(book.chaptersFileId, blob),
+    resolveChapters(book.chaptersFileId, byteSource),
     fetchThumbnailBlob(fileId, token),
   ]);
 
   await putCachedFile({
     fileId,
-    blob,
+    chunkSize: CHUNK_SIZE,
+    chunkCount,
+    size: confirmedBytes,
     mimeType,
-    size: blob.size,
     name: book.name,
     downloadedAt: Date.now(),
     // Stored even when null/absent (no sidecar, no embedded chapters found,
@@ -163,19 +201,23 @@ export async function downloadBook(book, onProgress) {
     chapters: chapters || null,
     thumbnailBlob: thumbnailBlob || null,
   });
-  await deletePartialDownload(fileId);
+  await deletePartialMeta(fileId);
   markDownloaded(fileId);
 }
 
 export async function removeDownload(fileId) {
   await deleteCachedFile(fileId);
-  await deletePartialDownload(fileId);
+  const partial = await getPartialMeta(fileId);
+  if (partial) {
+    await deleteChunks(fileId, partial.chunkCount);
+    await deletePartialMeta(fileId);
+  }
   unmarkDownloaded(fileId);
 }
 
 // Re-fetches just the chapter sidecar and cover thumbnail for a book that's
 // already downloaded, without touching its (potentially gigabytes-large)
-// cached audio blob — for when metadata capture failed at download time
+// cached audio chunks — for when metadata capture failed at download time
 // (no sign-in yet, a token that expired partway through a long download,
 // etc.) and re-downloading the whole audio file again would be wasteful.
 export async function refreshMetadata(book) {
@@ -185,8 +227,9 @@ export async function refreshMetadata(book) {
   const existing = await getCachedFile(book.audioFileId);
   if (!existing) throw new Error('This book is not downloaded');
 
+  const byteSource = chunkedByteSource(book.audioFileId, existing.chunkSize, existing.size, existing.mimeType);
   const [chapters, thumbnailBlob] = await Promise.all([
-    resolveChapters(book.chaptersFileId, existing.blob),
+    resolveChapters(book.chaptersFileId, byteSource),
     fetchThumbnailBlob(book.audioFileId, token),
   ]);
 
