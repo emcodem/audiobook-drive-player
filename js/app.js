@@ -44,6 +44,7 @@ const els = {
   sleepRemainingLabel: document.getElementById('sleepRemainingLabel'),
   chapterList: document.getElementById('chapterList'),
   noChaptersMsg: document.getElementById('noChaptersMsg'),
+  chaptersLoadingMsg: document.getElementById('chaptersLoadingMsg'),
   historyList: document.getElementById('historyList'),
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
@@ -211,10 +212,12 @@ async function syncLibrary() {
   const folderId = getLibraryFolderId();
   if (!folderId) {
     els.syncStatusMsg.textContent = 'No library folder selected yet — tap "Add library folder" above.';
+    els.syncStatusMsg.classList.remove('busy');
     return;
   }
 
   els.syncStatusMsg.textContent = 'Scanning library folder…';
+  els.syncStatusMsg.classList.add('busy');
   try {
     const files = await listFilesRecursive(folderId);
     const lib = syncBooksFolder(files);
@@ -238,6 +241,7 @@ async function syncLibrary() {
     // identical to "the folder is just empty" otherwise.
     status += ` Files seen: ${files.map((f) => f.name).join(', ') || '(none)'}.`;
     els.syncStatusMsg.textContent = status;
+    els.syncStatusMsg.classList.remove('busy');
     console.log('[adp] library folder scan:', files);
 
     if (!els.playerView.classList.contains('hidden')) {
@@ -248,6 +252,7 @@ async function syncLibrary() {
     console.error(err);
     els.syncStatusMsg.textContent =
       'Could not scan the library folder — check your sign-in/connection and try again.';
+    els.syncStatusMsg.classList.remove('busy');
   }
 }
 
@@ -256,6 +261,7 @@ els.audioEl.addEventListener('loadedmetadata', () => {
 });
 
 function renderChapters(chapters) {
+  els.chaptersLoadingMsg.classList.add('hidden');
   els.chapterList.innerHTML = '';
   els.noChaptersMsg.classList.toggle('hidden', chapters.length > 0);
   chapters.forEach((ch, i) => {
@@ -611,6 +617,15 @@ async function openPlayer(book) {
   renderHistory();
   lastDisplayedChapterIdx = -2;
   hideClip();
+
+  // Reset the chapters section for the NEW book right away, synchronously —
+  // chapter loading now resolves independently in the background (see
+  // player.js's load()) and can take a moment, so without this the person
+  // would briefly see the PREVIOUS book's chapter list (or stale state)
+  // still sitting there with no indication anything was happening.
+  els.chapterList.innerHTML = '';
+  els.noChaptersMsg.classList.add('hidden');
+  els.chaptersLoadingMsg.classList.remove('hidden');
 
   await player.load(book);
 }
