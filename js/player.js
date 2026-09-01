@@ -74,16 +74,22 @@ export class Player {
     this.audioEl.src = `./drive-audio/${book.audioFileId}?mime=${mime}`;
     this._setupMediaSession();
 
-    const chapterData = await loadChapters(book);
-    this.chapters = chapterData ? chapterData.chapters : [];
-    this._chaptersReady = true;
-    this.onChaptersLoaded(this.chapters);
-    // Chapter data and audio metadata load independently and can finish in
-    // either order — whichever finishes second is what actually has enough
-    // information to resume correctly, so both trigger an attempt (see
-    // _resume(), which is a no-op until it has what it needs and only ever
-    // applies its one-time seek once).
-    this._resume();
+    // Deliberately NOT awaited here — chapter loading (a sidecar fetch, or
+    // parsing embedded chapter atoms from the local cache for a downloaded
+    // book) is entirely independent of audio playback readiness and should
+    // never delay it, no matter how long it takes. Chapter data and audio
+    // metadata load independently and can finish in either order —
+    // whichever finishes second is what actually has enough information to
+    // resume correctly, so both trigger an attempt (see _resume(), which is
+    // a no-op until it has what it needs and only ever applies its one-time
+    // seek once).
+    loadChapters(book).then((chapterData) => {
+      if (this.book !== book) return; // a different book was opened meanwhile — this result is stale
+      this.chapters = chapterData ? chapterData.chapters : [];
+      this._chaptersReady = true;
+      this.onChaptersLoaded(this.chapters);
+      this._resume();
+    });
   }
 
   // minutes === 0 cancels any active timer.

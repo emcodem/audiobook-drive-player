@@ -1,7 +1,7 @@
 import { getAccessToken } from './auth.js';
 import { getCachedFile, updateCachedFileFields, chunkedByteSource } from './file-cache.js';
 import { logDebug } from './debug-log.js';
-import { parseChaptersFromByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
+import { parseChaptersFromByteSource } from './mp4-chapters.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -47,17 +47,19 @@ export async function fetchChapters(chaptersFileId) {
   }
 }
 
-// Cache-first read used by the player, now with an embedded-chapter fallback
-// (see mp4-chapters.js) on both paths: the sidecar (fetchChapters, above)
-// isn't the only possible source — most audiobook files that have chapters
-// at all actually embed them directly in the container, which is exactly
-// what generate-chapters.ps1's ffprobe pass originally read them out of to
-// build the sidecar in the first place. Parsing that directly here means a
-// working sidecar is no longer required at all: for a downloaded book, it's
-// parsed straight out of the local chunked cache (zero network, and never
-// assembles the whole file into memory as one Blob); for a streaming book,
-// via small Range requests through the same drive-audio proxy used for
-// playback.
+// Cache-first read used by the player, with an embedded-chapter fallback
+// (see mp4-chapters.js) — but ONLY against the local cache, never over the
+// network. The QuickTime chapter-text-track method (what most modern
+// encoders, ffmpeg included, actually produce) needs one small HTTP
+// round-trip PER CHAPTER — fine reading from an already-local blob/chunk,
+// but for a book that's merely streaming (no download), a few hundred
+// chapters meant a few hundred sequential network round-trips before
+// playback could even start, adding a minute or more of delay with no
+// visible reason. So: for a downloaded book, parsed straight out of the
+// local chunked cache (fast, no network). For anything else, only the
+// sidecar — a single small JSON fetch — is used; no chapters at all is the
+// honest fallback for a non-downloaded book with no sidecar, rather than a
+// slow one.
 export async function loadChapters(book) {
   const cached = await getCachedFile(book.audioFileId);
   if (cached) {
@@ -79,14 +81,6 @@ export async function loadChapters(book) {
   const sidecar = await fetchChapters(book.chaptersFileId);
   if (sidecar) return sidecar;
 
-  try {
-    const mime = encodeURIComponent(book.audioMimeType || 'audio/mp4');
-    const url = `./drive-audio/${book.audioFileId}?mime=${mime}`;
-    logDebug(`loadChapters: "${book.name}" has no sidecar chapters — trying to parse embedded chapters via Range requests.`);
-    const byteSource = await createHttpRangeByteSource(url);
-    return await parseChaptersFromByteSource(byteSource);
-  } catch (err) {
-    logDebug(`loadChapters: embedded-chapter parse via network failed: ${err}`);
-    return null;
-  }
+  logDebug(`loadChapters: "${book.name}" isn't downloaded and has no sidecar chapters — skipping embedded-chapter parsing over the network (it can mean one round-trip per chapter, which was adding real delay to playback start for a large chapter count). Download this book to get its embedded chapters without that cost.`);
+  return null;
 }
