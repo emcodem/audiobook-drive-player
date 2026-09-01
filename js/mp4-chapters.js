@@ -35,11 +35,19 @@ export function blobByteSource(blob) {
 // already report real Content-Range/Content-Length for Range requests).
 export async function createHttpRangeByteSource(url) {
   const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+  if (!probe.ok) {
+    // Most commonly a 401 from the drive-audio proxy when no valid access
+    // token is available (page-level or the service worker's own stored
+    // copy) — that response has no Content-Range/Content-Length at all, so
+    // without this check the failure below would misleadingly look like a
+    // parsing problem instead of what it actually is.
+    throw new Error(`probe request failed with status ${probe.status} — ${await probe.text().catch(() => '(no body)')}`);
+  }
   const contentRange = probe.headers.get('Content-Range');
   const total = contentRange
     ? Number(contentRange.split('/')[1])
     : Number(probe.headers.get('Content-Length'));
-  if (!total) throw new Error('could not determine file size for Range parsing');
+  if (!total) throw new Error('could not determine file size for Range parsing (response had no Content-Range or Content-Length)');
 
   return {
     length: total,
