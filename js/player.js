@@ -164,10 +164,31 @@ export class Player {
   // service worker (used after the user taps "keep listening"). Resume
   // position is preserved because it's continuously saved to localStorage
   // and re-applied on the next 'loadedmetadata' event.
+  //
+  // Timed end-to-end (see the logDebug calls below) because "why does this
+  // take so long" was a real question with no actual measurement behind
+  // any answer given for it so far — this replaces guessing with numbers
+  // from the next time it's slow.
   reloadAfterAuth() {
     if (!this.book) return;
     const wasPlaying = !this.audioEl.paused;
     const src = this.audioEl.src;
+    const t0 = performance.now();
+    const bookName = this.book.name;
+    logDebug(`reload-timing: "${bookName}" — starting reload (was ${wasPlaying ? 'playing' : 'paused'}).`);
+
+    this.audioEl.addEventListener('loadedmetadata', () => {
+      logDebug(`reload-timing: "${bookName}" — loadedmetadata after ${Math.round(performance.now() - t0)}ms.`);
+    }, { once: true });
+    this.audioEl.addEventListener('seeked', () => {
+      logDebug(`reload-timing: "${bookName}" — seek to resume position completed after ${Math.round(performance.now() - t0)}ms.`);
+    }, { once: true });
+    if (wasPlaying) {
+      this.audioEl.addEventListener('playing', () => {
+        logDebug(`reload-timing: "${bookName}" — audio actually playing again after ${Math.round(performance.now() - t0)}ms.`);
+      }, { once: true });
+    }
+
     this._resumeApplied = false; // force _resume() to re-seek on the reload below
     this.audioEl.src = src;
     this.audioEl.load();

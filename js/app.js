@@ -857,6 +857,16 @@ if ('serviceWorker' in navigator) {
     els.updateBanner.classList.remove('hidden');
   });
   els.updateReloadBtn.addEventListener('click', () => window.location.reload());
+
+  // Relays the service worker's own timing logs (see logToPage() in
+  // service-worker.js) into the page's Debug log — a service worker runs in
+  // a separate global scope with no shared memory with the page, so
+  // postMessage is the only way its logDebug-worthy timing info gets here.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'ADP_SW_LOG') {
+      logDebug(event.data.message);
+    }
+  });
 }
 
 // On-page debug log — see debug-log.js. Exists because messages logged via

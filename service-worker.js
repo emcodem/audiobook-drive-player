@@ -98,6 +98,16 @@ function parseRange(rangeHeader, total) {
   return { start, end };
 }
 
+// Posts a message to every open tab/window controlled by this service
+// worker — the only way for logDebug()'s in-memory, page-side log to see
+// anything that happens here, since a service worker runs in its own
+// separate global scope with no shared memory with the page. app.js relays
+// these into the normal Debug log via a 'message' listener.
+async function logToPage(message) {
+  const clients = await self.clients.matchAll({ type: 'window' });
+  clients.forEach((client) => client.postMessage({ type: 'ADP_SW_LOG', message }));
+}
+
 // Shared by both /drive-audio/ (the <audio> element) and /drive-video/ (the
 // optional clip <video> element) — same proxying need either way: the
 // element's own Range requests drive seeking, we forward them to Drive and
@@ -118,21 +128,34 @@ async function handleDriveMedia(fileId, request, mime) {
   const token = await getToken();
   if (!token) return new Response('No access token available', { status: 401 });
 
+  const tSizeStart = performance.now();
+  const wasSizeCached = sizeCache.has(fileId);
   const total = await getFileSize(fileId, token);
   if (total == null) return new Response('Could not determine file size', { status: 502 });
+  const sizeMs = Math.round(performance.now() - tSizeStart);
 
   const range = parseRange(request.headers.get('Range'), total);
   const start = range ? range.start : 0;
   const end = range ? range.end : total - 1;
 
+  const tFetchStart = performance.now();
   let driveResponse;
   try {
     driveResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}`, Range: `bytes=${start}-${end}` },
     });
   } catch {
+    logToPage(`sw-timing: fileId=${fileId} range=${start}-${end} — upstream fetch threw after ${Math.round(performance.now() - tFetchStart)}ms.`);
     return new Response('Upstream fetch failed', { status: 502 });
   }
+  const fetchMs = Math.round(performance.now() - tFetchStart);
+  // Deliberately logs every request, not just slow ones — a fast baseline
+  // (e.g. a small seek near the start) is exactly what makes a slow one
+  // (e.g. a deep seek after reloadAfterAuth) stand out as an outlier
+  // instead of being an isolated, uncontextualized number.
+  logToPage(
+    `sw-timing: fileId=${fileId} range=${start}-${end}/${total} — size-lookup=${sizeMs}ms (cached=${wasSizeCached}), drive-fetch-headers=${fetchMs}ms, status=${driveResponse.status}.`
+  );
 
   if (driveResponse.status === 401 || driveResponse.status === 403) {
     return new Response('Token expired or invalid', { status: 401 });
