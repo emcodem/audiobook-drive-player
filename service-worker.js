@@ -76,9 +76,27 @@ async function getToken() {
   return null;
 }
 
+// Wraps fetch() with a hard timeout via AbortController — a dead mobile
+// connection (radio reacquiring after a long background sleep) can leave a
+// fetch hanging for minutes with no error either way; see the ~4-minute
+// hang and repeated 15s+ stalls that showed up once sw-timing was actually
+// measuring this. 5s is generous for the ~400-900ms this normally takes
+// (per that same evidence) while still failing fast enough for a normal
+// retry/banner instead of a multi-minute hang.
+const DRIVE_FETCH_TIMEOUT_MS = 5000;
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DRIVE_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getFileSize(fileId, token) {
   if (sizeCache.has(fileId)) return sizeCache.get(fileId);
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=size`, {
+  const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=size`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
@@ -141,12 +159,13 @@ async function handleDriveMedia(fileId, request, mime) {
   const tFetchStart = performance.now();
   let driveResponse;
   try {
-    driveResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    driveResponse = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}`, Range: `bytes=${start}-${end}` },
     });
-  } catch {
-    logToPage(`sw-timing: fileId=${fileId} range=${start}-${end} — upstream fetch threw after ${Math.round(performance.now() - tFetchStart)}ms.`);
-    return new Response('Upstream fetch failed', { status: 502 });
+  } catch (err) {
+    const timedOut = err && err.name === 'AbortError';
+    logToPage(`sw-timing: fileId=${fileId} range=${start}-${end} — ${timedOut ? `timed out after ${DRIVE_FETCH_TIMEOUT_MS}ms` : 'upstream fetch threw'} (${Math.round(performance.now() - tFetchStart)}ms).`);
+    return new Response(timedOut ? 'Upstream fetch timed out' : 'Upstream fetch failed', { status: 504 });
   }
   const fetchMs = Math.round(performance.now() - tFetchStart);
   // Deliberately logs every request, not just slow ones — a fast baseline

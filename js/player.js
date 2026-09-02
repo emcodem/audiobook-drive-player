@@ -169,8 +169,25 @@ export class Player {
   // take so long" was a real question with no actual measurement behind
   // any answer given for it so far — this replaces guessing with numbers
   // from the next time it's slow.
+  //
+  // Guarded against overlapping calls: if the connection is stuck (e.g. a
+  // dead mobile connection reacquiring after a long background sleep),
+  // nothing previously stopped a second sign-in from calling this again
+  // while the first reload was still hanging — both attempts' event
+  // listeners piled onto the same <audio> element, so a stuck first reload
+  // and a fresh second one both eventually fired their own log lines when
+  // things recovered, which is exactly what happened once reload-timing
+  // was actually measuring this (two 'loadedmetadata' lines, ~14 minutes
+  // and ~1 minute, from the same recovery moment).
   reloadAfterAuth() {
     if (!this.book) return;
+    if (this._reloadInFlight) {
+      logDebug(`reload-timing: "${this.book.name}" — a reload is already in progress; skipping this one rather than stacking a second onto the same stuck connection.`);
+      return;
+    }
+    this._reloadInFlight = true;
+    const clearInFlight = () => { this._reloadInFlight = false; };
+
     const wasPlaying = !this.audioEl.paused;
     const src = this.audioEl.src;
     const t0 = performance.now();
@@ -179,6 +196,11 @@ export class Player {
 
     this.audioEl.addEventListener('loadedmetadata', () => {
       logDebug(`reload-timing: "${bookName}" — loadedmetadata after ${Math.round(performance.now() - t0)}ms.`);
+      clearInFlight();
+    }, { once: true });
+    this.audioEl.addEventListener('error', () => {
+      logDebug(`reload-timing: "${bookName}" — reload failed after ${Math.round(performance.now() - t0)}ms.`);
+      clearInFlight();
     }, { once: true });
     this.audioEl.addEventListener('seeked', () => {
       logDebug(`reload-timing: "${bookName}" — seek to resume position completed after ${Math.round(performance.now() - t0)}ms.`);
