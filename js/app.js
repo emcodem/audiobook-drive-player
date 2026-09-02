@@ -713,8 +713,8 @@ els.keepListeningBtn.addEventListener('click', () => {
 // downloaded instead. Dismissing snoozes the banner for a while rather
 // than permanently, since the token really is still expiring and playback
 // of anything non-downloaded really will need a fresh sign-in eventually —
-// but it stops the immediate re-trap where the very next visibility check
-// (see checkExpirySoon() in auth.js) would otherwise show it right back.
+// but it stops an immediate re-trap if another real playback error fires
+// again shortly after (e.g. a retry against the same bad connection).
 let tokenBannerSnoozedUntil = 0;
 const TOKEN_BANNER_SNOOZE_MS = 2 * 60 * 1000;
 els.dismissTokenBannerBtn.addEventListener('click', () => {

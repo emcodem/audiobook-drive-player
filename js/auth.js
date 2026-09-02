@@ -4,7 +4,6 @@ import { setStoredToken } from './token-store.js';
 let tokenClient = null;
 let currentToken = null;
 let expiresAt = 0;
-let expiryTimer = null;
 let onTokenChange = () => {};
 let readyCallbacks = [];
 
@@ -85,7 +84,6 @@ function handleNewToken(token, expiresInSeconds) {
   expiresAt = Date.now() + expiresInSeconds * 1000;
   setStoredToken(token, expiresAt);
   broadcastToServiceWorker(token, expiresAt);
-  scheduleExpiryWarning();
   onTokenChange(token);
 }
 
@@ -95,35 +93,13 @@ function broadcastToServiceWorker(token, expiresAtMs) {
   });
 }
 
-function scheduleExpiryWarning() {
-  clearTimeout(expiryTimer);
-  const warnInMs = expiresAt - Date.now() - 5 * 60 * 1000;
-  expiryTimer = setTimeout(() => {
-    window.dispatchEvent(new CustomEvent('adp:token-expiring'));
-  }, Math.max(warnInMs, 0));
-}
-
-// The setTimeout above is scheduled once, right after sign-in, for however
-// many minutes out the 5-minutes-before point is — but a backgrounded tab
-// (screen off, app switched away) gets its timers throttled or suspended by
-// the browser, especially over the long stretches typical of audiobook
-// listening. The timer can land much later than intended, or effectively
-// never fire before the token has actually expired — so the person only
-// finds out reactively, from a playback error, instead of with the 5-minute
-// notice this was supposed to give them. Re-checking the ACTUAL remaining
-// time (wall-clock expiresAt vs Date.now(), not a timer's own sense of
-// elapsed time) every time the tab becomes visible again catches that case:
-// coming back to a phone whose screen was off for 20 minutes immediately
-// re-evaluates and fires the same warning right away if the token is
-// already within (or past) the window, rather than waiting on a timer that
-// may never make it there.
-function checkExpirySoon() {
-  if (!expiresAt) return;
-  if (expiresAt - Date.now() <= 5 * 60 * 1000) {
-    window.dispatchEvent(new CustomEvent('adp:token-expiring'));
-  }
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') checkExpirySoon();
-});
+// Deliberately NOT warning ahead of actual expiry (a prior version fired
+// adp:token-expiring 5 minutes early, via both a setTimeout here and a
+// visibilitychange re-check to survive background timer throttling). That
+// was interrupting playback for sessions that didn't need it yet — the
+// <audio> element can have many minutes or hours already buffered ahead,
+// so an expired token often doesn't cause any actual problem until that
+// buffer runs out and a new fetch is needed. The reactive path already in
+// player.js (_handlePlaybackError, on a genuine playback error) is the
+// right signal: something actually failed, not just "some clock says it
+// might, eventually."
