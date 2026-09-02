@@ -13,7 +13,7 @@ import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
 import { downloadBook, removeDownload, refreshMetadata, hasCachedFile } from './downloader.js';
-import { verifyAndLogChunks } from './file-cache.js';
+import { verifyAndLogChunks, logEvictedBookDiagnostics } from './file-cache.js';
 import { getDebugEntries, clearDebugEntries, onDebugLog, logDebug } from './debug-log.js';
 import { APP_VERSION } from './version.js';
 
@@ -795,9 +795,19 @@ if (navigator.storage && navigator.storage.persist) {
 // launch so a pattern (e.g. quota shrinking over time, or usage sitting
 // suspiciously close to quota right before a loss) is visible in hindsight.
 if (navigator.storage && navigator.storage.estimate) {
-  navigator.storage.estimate().then(({ usage, quota }) => {
+  navigator.storage.estimate().then((estimate) => {
+    const { usage, quota, usageDetails } = estimate;
     const pct = quota ? ((usage / quota) * 100).toFixed(1) : '?';
     logDebug(`storage: usage=${formatBytes(usage)} quota=${formatBytes(quota)} (${pct}% used).`);
+    // Chrome-only, non-standard breakdown of the usage figure above — not
+    // guaranteed to exist, hence the guard. Tells apart "the 70 MB is real
+    // downloaded audio in indexedDB" from "it's actually the service
+    // worker's precached app shell / Cache Storage", which the single
+    // usage number above can't distinguish on its own.
+    if (usageDetails) {
+      const parts = Object.entries(usageDetails).map(([k, v]) => `${k}=${formatBytes(v)}`);
+      logDebug(`storage: breakdown — ${parts.join(', ')}.`);
+    }
   });
 }
 
@@ -809,8 +819,14 @@ if (navigator.storage && navigator.storage.estimate) {
 // large library doesn't burst a pile of IndexedDB transactions all at once.
 (async () => {
   for (const book of getLibrary()) {
-    // eslint-disable-next-line no-await-in-loop
-    await verifyAndLogChunks(book);
+    const cached = await hasCachedFile(book.audioFileId);
+    if (!cached && wasDownloaded(book.audioFileId)) {
+      // eslint-disable-next-line no-await-in-loop
+      await logEvictedBookDiagnostics(book);
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      await verifyAndLogChunks(book);
+    }
   }
 })();
 

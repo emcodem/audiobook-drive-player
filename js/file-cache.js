@@ -281,6 +281,32 @@ export async function verifyAndLogChunks(book) {
   }
 }
 
+// For a book the local ledger (storage.js's wasDownloaded) says WAS
+// downloaded, but whose file-cache META_STORE record is gone (the
+// "data appears to have been cleared" case) — this is the missing half of
+// the picture verifyAndLogChunks() can't cover, since it no-ops without a
+// meta record to check chunk counts against. Distinguishes two different
+// failure shapes that look identical from download-ui's one-line summary:
+//  - a leftover PARTIAL_META_STORE record with orphaned chunks still
+//    sitting in IndexedDB (a resume point from an interrupted download
+//    that never completed, wrongly read back as "was downloaded" by a
+//    stale ledger entry) — counts toward storage usage despite no
+//    completed download ever existing
+//  - truly nothing left at all (both the meta record AND any partial/chunk
+//    data are gone) — consistent with the whole IndexedDB database (or the
+//    origin's storage generally) having been wiped from outside the app,
+//    not a partial/logical loss internal to it
+export async function logEvictedBookDiagnostics(book) {
+  const partial = await getPartialMeta(book.audioFileId);
+  if (!partial) {
+    logDebug(`evicted-diagnostic: "${book.name}" — no completed record AND no leftover partial-download data either. Consistent with the whole database (or origin storage generally) being wiped from outside the app, not a partial loss.`);
+    return;
+  }
+  const { total, missing } = await verifyChunksPresent(book.audioFileId, partial.chunkCount);
+  const present = total - missing.length;
+  logDebug(`evicted-diagnostic: "${book.name}" — no completed download record, but a leftover partial-download resume point exists: ${present} of ${partial.chunkCount} chunk(s) from that partial still present in storage. This is orphaned data from an interrupted download, not a completed one being cleared.`);
+}
+
 // Metadata for every cached file — used for a "manage downloads" view /
 // total-size display. Deliberately excludes chunk data entirely (cheap to
 // list even for a large library).
