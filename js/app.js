@@ -7,6 +7,7 @@ import {
   getLibraryFolderId,
   setLibraryFolderId,
   wasDownloaded,
+  unmarkDownloaded,
 } from './storage.js';
 import { Player } from './player.js';
 import { getThumbnail } from './thumbnails.js';
@@ -841,6 +842,13 @@ if (navigator.storage && navigator.storage.estimate) {
     if (!cached && wasDownloaded(book.audioFileId)) {
       // eslint-disable-next-line no-await-in-loop
       await logEvictedBookDiagnostics(book);
+      // Diagnosed as fully as a launch-time check can — clear the ledger
+      // flag so this doesn't keep reporting the SAME one-time eviction as
+      // if it were a fresh event on every single future launch. There's no
+      // further diagnostic value left in it once logged once, and leaving
+      // it set was misleading — it read like a new, repeated loss rather
+      // than one historical occurrence being restated.
+      unmarkDownloaded(book.audioFileId);
     } else {
       // eslint-disable-next-line no-await-in-loop
       await verifyAndLogChunks(book);
