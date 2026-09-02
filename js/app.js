@@ -50,6 +50,7 @@ const els = {
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
+  dismissTokenBannerBtn: document.getElementById('dismissTokenBannerBtn'),
   updateBanner: document.getElementById('updateBanner'),
   updateReloadBtn: document.getElementById('updateReloadBtn'),
   debugLogBtn: document.getElementById('debugLogBtn'),
@@ -705,14 +706,31 @@ els.keepListeningBtn.addEventListener('click', () => {
   els.tokenBanner.classList.add('hidden');
 });
 
+// Escape hatch for the case that prompted this: if re-auth keeps failing
+// (see reload-timing/sw-timing — a bad connection can make this loop),
+// there was previously NO way out of this full-screen overlay at all — no
+// debug log, no way back to the library to just play something already
+// downloaded instead. Dismissing snoozes the banner for a while rather
+// than permanently, since the token really is still expiring and playback
+// of anything non-downloaded really will need a fresh sign-in eventually —
+// but it stops the immediate re-trap where the very next visibility check
+// (see checkExpirySoon() in auth.js) would otherwise show it right back.
+let tokenBannerSnoozedUntil = 0;
+const TOKEN_BANNER_SNOOZE_MS = 2 * 60 * 1000;
+els.dismissTokenBannerBtn.addEventListener('click', () => {
+  tokenBannerSnoozedUntil = Date.now() + TOKEN_BANNER_SNOOZE_MS;
+  els.tokenBanner.classList.add('hidden');
+});
+
 // If the currently open book is fully downloaded, its playback doesn't need
 // the Google session at all (audio, chapters, and cover are all local) — so
 // warning that the session is about to expire would just be a false alarm
 // interruption for something that was never going to need it.
 window.addEventListener('adp:token-expiring', async () => {
   const cached = player.book ? await hasCachedFile(player.book.audioFileId) : false;
-  logDebug(`token-expiring: book="${player.book ? player.book.name : '(none open)'}" cached=${cached} -> ${cached ? 'suppressing banner' : 'showing banner'}`);
-  if (cached) return;
+  const snoozed = Date.now() < tokenBannerSnoozedUntil;
+  logDebug(`token-expiring: book="${player.book ? player.book.name : '(none open)'}" cached=${cached} snoozed=${snoozed} -> ${cached || snoozed ? 'suppressing banner' : 'showing banner'}`);
+  if (cached || snoozed) return;
   els.tokenBanner.classList.remove('hidden');
 });
 
