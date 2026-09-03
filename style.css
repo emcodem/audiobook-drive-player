@@ -377,6 +377,15 @@ body {
   font-weight: 600;
 }
 
+.chapter-list li.not-clickable {
+  cursor: default;
+}
+
+.chapter-list li.tapped {
+  background: var(--surface-2);
+  transition: background 0.15s ease;
+}
+
 .token-overlay {
   position: fixed;
   inset: 0;

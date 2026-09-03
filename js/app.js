@@ -49,6 +49,7 @@ const els = {
   chaptersParsingMsg: document.getElementById('chaptersParsingMsg'),
   historyList: document.getElementById('historyList'),
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
+  historyFeedbackMsg: document.getElementById('historyFeedbackMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
   keepListeningBtn: document.getElementById('keepListeningBtn'),
   dismissTokenBannerBtn: document.getElementById('dismissTokenBannerBtn'),
@@ -298,11 +299,19 @@ function formatHistoryTimestamp(ms) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+function showHistoryFeedback(text) {
+  els.historyFeedbackMsg.textContent = text;
+  els.historyFeedbackMsg.classList.remove('hidden');
+  clearTimeout(showHistoryFeedback._t);
+  showHistoryFeedback._t = setTimeout(() => els.historyFeedbackMsg.classList.add('hidden'), 3000);
+}
+
 function renderHistory() {
   if (!currentBook) return;
   const history = getHistory(currentBook.audioFileId);
   els.historyList.innerHTML = '';
   els.emptyHistoryMsg.classList.toggle('hidden', history.length > 0);
+  els.historyFeedbackMsg.classList.add('hidden');
 
   // Most recently listened first.
   [...history].reverse().forEach((entry) => {
@@ -315,7 +324,29 @@ function renderHistory() {
     li.appendChild(titleText);
     li.appendChild(time);
     if (entry.type === 'sleep') li.classList.add('history-sleep');
-    if (entry.chapterIndex >= 0) li.addEventListener('click', () => player.jumpToChapter(entry.chapterIndex));
+
+    const isJumpable = entry.chapterIndex >= 0;
+    // A sleep-timer entry (or any entry without a chapter to jump to) was
+    // still showing the same pointer cursor as a real, clickable one — the
+    // generic .chapter-list li rule applies to every <li> regardless. That
+    // mismatch (looks clickable, isn't) was part of "clicking doesn't work
+    // with no feedback"; not-clickable removes the affordance for the ones
+    // that were never going to do anything.
+    li.classList.toggle('not-clickable', !isJumpable);
+    if (isJumpable) {
+      li.addEventListener('click', () => {
+        // Visible acknowledgement that the tap registered at all, before
+        // even knowing whether the jump below succeeds — a silent click
+        // with literally nothing happening either way was the actual bug.
+        li.classList.add('tapped');
+        setTimeout(() => li.classList.remove('tapped'), 300);
+
+        const jumped = player.jumpToChapter(entry.chapterIndex);
+        if (!jumped) {
+          showHistoryFeedback("Couldn't jump there yet — chapters may still be loading in the background. Try again in a moment.");
+        }
+      });
+    }
     els.historyList.appendChild(li);
   });
 }

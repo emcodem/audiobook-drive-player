@@ -244,8 +244,21 @@ export class Player {
   }
 
   jumpToChapter(index) {
+    if (index == null || index < 0) {
+      logDebug(`player: jumpToChapter(${index}) — no valid chapter index given.`);
+      return false;
+    }
+    if (!this.chapters.length) {
+      logDebug(`player: jumpToChapter(${index}) — chapters not loaded yet for "${this.book ? this.book.name : '(no book)'}" (still parsing in the background, or none exist).`);
+      return false;
+    }
     const chapter = this.chapters[index];
-    if (chapter) this.seekTo(chapter.start);
+    if (!chapter) {
+      logDebug(`player: jumpToChapter(${index}) — index out of range (only ${this.chapters.length} chapter(s) available).`);
+      return false;
+    }
+    this.seekTo(chapter.start);
+    return true;
   }
 
   currentChapterIndex() {
