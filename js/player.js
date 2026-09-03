@@ -7,7 +7,7 @@ import { verifyAndLogChunks } from './file-cache.js';
 const SAVE_INTERVAL_MS = 8000;
 
 export class Player {
-  constructor({ audioEl, onChaptersLoaded, onChaptersParsing, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
+  constructor({ audioEl, onChaptersLoaded, onChaptersParsing, onLoadStatus, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
     this.audioEl = audioEl;
     this.book = null;
     this.chapters = [];
@@ -16,6 +16,15 @@ export class Player {
     // load() below) and false once it settles (found something or not) —
     // lets the UI show a "still parsing" state distinct from "no chapters".
     this.onChaptersParsing = onChaptersParsing || (() => {});
+    // 'connecting' (audio src just assigned, no metadata yet) ->
+    // 'resuming' (metadata + chapters both ready, seeking to the saved
+    // position) -> 'ready' (seek done, or there was nothing to seek to).
+    // Also fired as 'reconnecting' by reloadAfterAuth(), which reuses this
+    // same _resume()-driven 'resuming'/'ready' sequence afterward — added
+    // because there was previously NO visible indication of any of this
+    // happening at all; the player view just sat there with no signal of
+    // what it was doing or how long it might take.
+    this.onLoadStatus = onLoadStatus || (() => {});
     this.onTimeUpdate = onTimeUpdate || (() => {});
     this.onEnded = onEnded || (() => {});
     this.onSleepTimerEnded = onSleepTimerEnded || (() => {});
@@ -70,6 +79,7 @@ export class Player {
     this._chaptersReady = false;
     this._resumeApplied = false;
     this.setSleepTimer(0);
+    this.onLoadStatus('connecting');
 
     logDebug(`player: loading "${book.name}" audioFileId=${book.audioFileId} chaptersFileId=${book.chaptersFileId || '(none)'}`);
     this._verifyChunks(book); // fire-and-forget — logs the result, doesn't block playback starting
@@ -201,6 +211,7 @@ export class Player {
     this.audioEl.addEventListener('error', () => {
       logDebug(`reload-timing: "${bookName}" — reload failed after ${Math.round(performance.now() - t0)}ms.`);
       clearInFlight();
+      this.onLoadStatus('ready'); // don't leave the status stuck on "reconnecting" forever
     }, { once: true });
     this.audioEl.addEventListener('seeked', () => {
       logDebug(`reload-timing: "${bookName}" — seek to resume position completed after ${Math.round(performance.now() - t0)}ms.`);
@@ -212,6 +223,7 @@ export class Player {
     }
 
     this._resumeApplied = false; // force _resume() to re-seek on the reload below
+    this.onLoadStatus('reconnecting');
     this.audioEl.src = src;
     this.audioEl.load();
     if (wasPlaying) {
@@ -307,7 +319,13 @@ export class Player {
       if (chapter) target = chapter.start;
     }
 
-    if (target != null) this.audioEl.currentTime = target;
+    if (target != null) {
+      this.onLoadStatus('resuming');
+      this.audioEl.addEventListener('seeked', () => this.onLoadStatus('ready'), { once: true });
+      this.audioEl.currentTime = target;
+    } else {
+      this.onLoadStatus('ready');
+    }
     this._resumeApplied = true;
     this.onTimeUpdate(this.audioEl.currentTime, this.audioEl.duration);
   }

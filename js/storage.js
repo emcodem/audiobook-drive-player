@@ -124,3 +124,40 @@ export function unmarkDownloaded(fileId) {
 export function wasDownloaded(fileId) {
   return getDownloadedLedger().includes(fileId);
 }
+
+// Caches the result of parsing embedded chapters straight from a live
+// stream (see parseChaptersInBackground in chapters.js) — for a book
+// that's never been downloaded, there's no local file to attach that
+// result to, so without this it silently re-parsed via fresh network
+// Range requests every single time the book was opened, even though the
+// chapter data itself never changes. localStorage (not a cookie — cookies
+// get sent on every HTTP request and have a ~4KB per-value limit; a
+// 200-chapter book alone is already bigger than that) keyed by fileId,
+// since this is small structured JSON, not the kind of thing that needs
+// file-cache.js's IndexedDB blob storage.
+const STREAM_CHAPTERS_KEY = 'adp_stream_chapters_v1';
+
+function getStreamChaptersStore() {
+  try {
+    return JSON.parse(localStorage.getItem(STREAM_CHAPTERS_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function getCachedStreamChapters(fileId) {
+  const store = getStreamChaptersStore();
+  return store[fileId] || null;
+}
+
+export function setCachedStreamChapters(fileId, chapters) {
+  const store = getStreamChaptersStore();
+  store[fileId] = chapters;
+  try {
+    localStorage.setItem(STREAM_CHAPTERS_KEY, JSON.stringify(store));
+  } catch {
+    // Full or unavailable localStorage — this cache is a pure optimization
+    // on top of a fully-working fallback (re-parsing), so silently skipping
+    // the write is fine; it just costs one more background parse next time.
+  }
+}

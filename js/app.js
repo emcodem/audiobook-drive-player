@@ -35,6 +35,7 @@ const els = {
   appVersionMsg: document.getElementById('appVersionMsg'),
   backToLibraryBtn: document.getElementById('backToLibraryBtn'),
   playerTitle: document.getElementById('playerTitle'),
+  playerLoadStatus: document.getElementById('playerLoadStatus'),
   scrubber: document.getElementById('scrubber'),
   currentTimeLabel: document.getElementById('currentTimeLabel'),
   durationLabel: document.getElementById('durationLabel'),
@@ -158,6 +159,21 @@ const player = new Player({
     chaptersParsingInBackground = isParsing;
     els.chaptersParsingMsg.classList.toggle('hidden', !isParsing);
     els.noChaptersMsg.classList.toggle('hidden', isParsing || player.chapters.length > 0);
+  },
+  // The only visible sign of what's happening between "opened a book" and
+  // "audio is actually seekable/playing" used to be the chapters section —
+  // easy to miss, and it says nothing about audio/network readiness at
+  // all. This is the general answer to "what is it doing right now, and
+  // how long should I expect to wait".
+  onLoadStatus: (status) => {
+    const text = {
+      connecting: 'Connecting to your audio…',
+      reconnecting: 'Reconnecting…',
+      resuming: 'Resuming your last position…',
+      ready: '',
+    }[status] || '';
+    els.playerLoadStatus.textContent = text;
+    els.playerLoadStatus.classList.toggle('hidden', !text);
   },
   onTimeUpdate: (current, duration) => {
     updateScrubber(current, duration);
@@ -672,6 +688,7 @@ async function openPlayer(book) {
   els.chaptersParsingMsg.classList.add('hidden');
   chaptersParsingInBackground = false;
   els.chaptersLoadingMsg.classList.remove('hidden');
+  els.playerLoadStatus.classList.add('hidden');
 
   await player.load(book);
 }

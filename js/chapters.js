@@ -2,6 +2,7 @@ import { getAccessToken } from './auth.js';
 import { getCachedFile, updateCachedFileFields, chunkedByteSource } from './file-cache.js';
 import { logDebug } from './debug-log.js';
 import { parseChaptersFromByteSource, createHttpRangeByteSource } from './mp4-chapters.js';
+import { getCachedStreamChapters, setCachedStreamChapters } from './storage.js';
 
 // Fetches a "<book>.chapters.json" sidecar (see scripts/generate-chapters.ps1).
 // This is a small JSON GET done directly from the page (with an Authorization
@@ -81,6 +82,18 @@ export async function loadChapters(book) {
   const sidecar = await fetchChapters(book.chaptersFileId);
   if (sidecar) return sidecar;
 
+  // Before falling back to a background stream-parse, check whether a
+  // previous session already did that parse for this exact file — see
+  // setCachedStreamChapters() below. The parsed result (title + start time
+  // per chapter) never changes for a given file, so re-parsing it via fresh
+  // network Range requests every single time the book was opened, forever,
+  // was pure waste once the answer was already known.
+  const cachedStream = getCachedStreamChapters(book.audioFileId);
+  if (cachedStream && cachedStream.length) {
+    logDebug(`loadChapters: "${book.name}" — using ${cachedStream.length} chapter(s) cached locally from a previous streaming parse; no re-parse needed.`);
+    return { chapters: cachedStream };
+  }
+
   logDebug(`loadChapters: "${book.name}" isn't downloaded and has no sidecar chapters — not parsing embedded chapters here (it can mean one round-trip per chapter, which would delay playback start for a large chapter count). Signalling the caller to run that parse as a background job instead, after playback has already started — see parseChaptersInBackground below.`);
   return { streamParseNeeded: true };
 }
@@ -92,10 +105,10 @@ export async function loadChapters(book) {
 // per-chapter-round-trip cost loadChapters() deliberately declines to pay
 // before playback starts (see the streamParseNeeded case above); called
 // from here, by the player, *after* playback has already begun, it's fine
-// for this to take a while in the background. Never persisted — there's no
-// local cache entry to attach the result to for a book that isn't
-// downloaded, so it re-parses from scratch every time the book is opened
-// while streaming.
+// for this to take a while in the background. Persisted via
+// setCachedStreamChapters() (localStorage, keyed by fileId) once found, so
+// loadChapters() above can skip straight to the cached result on every
+// future open of the same book instead of re-parsing from scratch again.
 export async function parseChaptersInBackground(book, streamUrl) {
   let byteSource;
   try {
@@ -107,6 +120,7 @@ export async function parseChaptersInBackground(book, streamUrl) {
   const result = await parseChaptersFromByteSource(byteSource);
   if (result && result.chapters && result.chapters.length) {
     logDebug(`parseChaptersInBackground: "${book.name}" — parsed ${result.chapters.length} embedded chapter(s) from the live stream in the background.`);
+    setCachedStreamChapters(book.audioFileId, result.chapters);
     return result;
   }
   logDebug(`parseChaptersInBackground: "${book.name}" — background streaming parse finished with no embedded chapters found.`);
