@@ -330,15 +330,20 @@ function renderChapters(chapters) {
 
     const end = player.chapterEnd(i);
     if (end == null || end - ch.start <= LONG_CHAPTER_SECONDS) return;
-    for (let t = ch.start + MARKER_STEP_SECONDS; t < end - 60; t += MARKER_STEP_SECONDS) {
+    // The chapter row itself is part 1; markers are parts 2..N.
+    const starts = [];
+    for (let t = ch.start + MARKER_STEP_SECONDS; t < end - 60; t += MARKER_STEP_SECONDS) starts.push(t);
+    const chapterTitle = ch.title || `Chapter ${i + 1}`;
+    const totalParts = starts.length + 1;
+    starts.forEach((t, k) => {
       const sub = document.createElement('li');
       sub.className = 'chapter-marker';
       sub.dataset.markerChapterIndex = String(i);
       sub.dataset.start = String(t);
-      sub.textContent = `${formatTime(t)}  (+${formatTime(t - ch.start)} in chapter)`;
+      sub.textContent = `${chapterTitle} · Part ${k + 2}/${totalParts} — ${formatTime(t)}`;
       sub.addEventListener('click', () => player.seekTo(t));
       els.chapterList.appendChild(sub);
-    }
+    });
   });
   highlightCurrentChapter();
 }
