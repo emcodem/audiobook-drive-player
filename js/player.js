@@ -140,6 +140,7 @@ export class Player {
       this._sleepTimeoutId = setTimeout(() => {
         this.pause();
         this._sleepDeadline = null;
+        this._recordSleepEndHistory();
         this.onSleepTimerEnded();
       }, ms);
       this._recordSleepHistory(minutes);
@@ -147,7 +148,10 @@ export class Player {
   }
 
   // Records where in the book (and when) the sleep timer was turned on, so
-  // the listening history shows it alongside chapter entries.
+  // the listening history shows it alongside chapter entries. Stores the
+  // exact playback position, not just the chapter — with long chapters
+  // (e.g. a 20h book with 2 chapters) "the chapter you were in" is
+  // practically useless as a place to go back to after falling asleep.
   _recordSleepHistory(minutes) {
     if (!this.book) return;
     const idx = this.currentChapterIndex();
@@ -155,8 +159,26 @@ export class Player {
     addHistoryEntry(this.book.audioFileId, {
       type: 'sleep',
       chapterIndex: idx,
+      position: this.audioEl.currentTime,
       title: chapter ? (chapter.title || `Chapter ${idx + 1}`) : this.book.name,
       minutes,
+      at: Date.now(),
+    });
+    this.onHistoryUpdated();
+  }
+
+  // Companion to _recordSleepHistory: where playback actually was when the
+  // timer paused it, so both "where I set it" and "where it stopped" are
+  // one tap away in the history.
+  _recordSleepEndHistory() {
+    if (!this.book) return;
+    const idx = this.currentChapterIndex();
+    const chapter = idx >= 0 ? this.chapters[idx] : null;
+    addHistoryEntry(this.book.audioFileId, {
+      type: 'sleep-end',
+      chapterIndex: idx,
+      position: this.audioEl.currentTime,
+      title: chapter ? (chapter.title || `Chapter ${idx + 1}`) : this.book.name,
       at: Date.now(),
     });
     this.onHistoryUpdated();
@@ -273,6 +295,15 @@ export class Player {
     return true;
   }
 
+  // End of chapter `index`: the next chapter's start, or the file's duration
+  // for the last one (null if that isn't known yet).
+  chapterEnd(index) {
+    const next = this.chapters[index + 1];
+    if (next) return next.start;
+    const d = this.audioEl.duration;
+    return isFinite(d) && d > 0 ? d : null;
+  }
+
   currentChapterIndex() {
     const t = this.audioEl.currentTime;
     let idx = -1;
@@ -351,6 +382,7 @@ export class Player {
     const chapter = this.chapters[idx];
     addHistoryEntry(this.book.audioFileId, {
       chapterIndex: idx,
+      position: this.audioEl.currentTime,
       title: chapter.title || `Chapter ${idx + 1}`,
       at: Date.now(),
     });

@@ -153,6 +153,7 @@ const player = new Player({
     updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
     renderHistory();
     lastDisplayedChapterIdx = -2;
+    lastDisplayedMarkerKey = null;
     updateNowPlayingChapter();
   },
   onChaptersParsing: (isParsing) => {
@@ -189,6 +190,15 @@ const player = new Player({
   onHistoryUpdated: () => renderHistory(),
 });
 
+let lastDisplayedMarkerKey = null;
+// Which 30-min marker block the playhead is in — cheap to compute every
+// timeupdate, so the (DOM-walking) highlight only reruns when it changes.
+function currentMarkerKey() {
+  const idx = player.currentChapterIndex();
+  const start = idx >= 0 ? player.chapters[idx].start : 0;
+  return `${idx}:${Math.floor((els.audioEl.currentTime - start) / MARKER_STEP_SECONDS)}`;
+}
+
 // Chapter title (e.g. "(90) Erfahrungen Sammeln [German]") replaces the
 // filename/book-range title while a chapter is playing — falls back to the
 // book name before chapters load or for books with no chapter data.
@@ -196,6 +206,12 @@ function updateNowPlayingChapter() {
   const idx = player.currentChapterIndex();
   const chapter = idx >= 0 ? player.chapters[idx] : null;
   els.playerTitle.textContent = chapter ? (chapter.title || `Chapter ${idx + 1}`) : (currentBook?.name || '');
+
+  const marker = currentMarkerKey();
+  if (marker !== lastDisplayedMarkerKey) {
+    lastDisplayedMarkerKey = marker;
+    highlightCurrentChapter();
+  }
 
   if (idx === lastDisplayedChapterIdx) return;
   lastDisplayedChapterIdx = idx;
@@ -288,7 +304,17 @@ async function syncLibrary() {
 
 els.audioEl.addEventListener('loadedmetadata', () => {
   updateScrubber(els.audioEl.currentTime, els.audioEl.duration);
+  // The last chapter's end is the file duration, which may only become
+  // known now — re-render so its time markers appear.
+  if (player.chapters.length) renderChapters(player.chapters);
 });
+
+// Chapters longer than this get time markers listed under them, so a book
+// with very few, very long chapters (e.g. 2 chapters over 20h) is still
+// navigable from the list — the chapter-scoped scrubber alone is far too
+// coarse on a phone at that length (one pixel ≈ minutes).
+const LONG_CHAPTER_SECONDS = 45 * 60;
+const MARKER_STEP_SECONDS = 30 * 60;
 
 function renderChapters(chapters) {
   els.chaptersLoadingMsg.classList.add('hidden');
@@ -296,15 +322,42 @@ function renderChapters(chapters) {
   els.noChaptersMsg.classList.toggle('hidden', chapters.length > 0 || chaptersParsingInBackground);
   chapters.forEach((ch, i) => {
     const li = document.createElement('li');
+    li.dataset.chapterIndex = String(i);
     li.textContent = `${ch.title || 'Chapter ' + (i + 1)} — ${formatTime(ch.start)}`;
     li.addEventListener('click', () => player.jumpToChapter(i));
     els.chapterList.appendChild(li);
+
+    const end = player.chapterEnd(i);
+    if (end == null || end - ch.start <= LONG_CHAPTER_SECONDS) return;
+    for (let t = ch.start + MARKER_STEP_SECONDS; t < end - 60; t += MARKER_STEP_SECONDS) {
+      const sub = document.createElement('li');
+      sub.className = 'chapter-marker';
+      sub.dataset.markerChapterIndex = String(i);
+      sub.dataset.start = String(t);
+      sub.textContent = `${formatTime(t)}  (+${formatTime(t - ch.start)} in chapter)`;
+      sub.addEventListener('click', () => player.seekTo(t));
+      els.chapterList.appendChild(sub);
+    }
   });
+  highlightCurrentChapter();
 }
 
 function highlightCurrentChapter() {
   const idx = player.currentChapterIndex();
-  [...els.chapterList.children].forEach((li, i) => li.classList.toggle('active', i === idx));
+  const t = els.audioEl.currentTime;
+  // The marker the playhead is currently in (if any) wins over its chapter
+  // row, so the highlight is actually informative within a long chapter.
+  let activeMarker = null;
+  els.chapterList.querySelectorAll('li.chapter-marker').forEach((li) => {
+    if (Number(li.dataset.markerChapterIndex) === idx && t >= Number(li.dataset.start)) activeMarker = li;
+  });
+  [...els.chapterList.children].forEach((li) => {
+    const isChapterRow = li.dataset.chapterIndex != null;
+    const active = activeMarker
+      ? li === activeMarker
+      : isChapterRow && Number(li.dataset.chapterIndex) === idx;
+    li.classList.toggle('active', active);
+  });
 }
 
 function formatHistoryTimestamp(ms) {
@@ -332,31 +385,36 @@ function renderHistory() {
   // Most recently listened first.
   [...history].reverse().forEach((entry) => {
     const li = document.createElement('li');
-    const label = entry.type === 'sleep' ? `Sleep timer set (${entry.minutes} min) — ${entry.title}` : entry.title;
+    const hasPosition = typeof entry.position === 'number' && isFinite(entry.position);
+    const at = hasPosition ? ` @ ${formatTime(entry.position)}` : '';
+    let label;
+    if (entry.type === 'sleep') label = `Sleep timer set (${entry.minutes} min)${at} — ${entry.title}`;
+    else if (entry.type === 'sleep-end') label = `Sleep timer stopped playback${at} — ${entry.title}`;
+    else label = `${entry.title}${at}`;
     const titleText = document.createTextNode(label + ' ');
     const time = document.createElement('span');
     time.className = 'history-time';
     time.textContent = formatHistoryTimestamp(entry.at);
     li.appendChild(titleText);
     li.appendChild(time);
-    if (entry.type === 'sleep') li.classList.add('history-sleep');
+    if (entry.type === 'sleep' || entry.type === 'sleep-end') li.classList.add('history-sleep');
 
-    const isJumpable = entry.chapterIndex >= 0;
-    // A sleep-timer entry (or any entry without a chapter to jump to) was
-    // still showing the same pointer cursor as a real, clickable one — the
-    // generic .chapter-list li rule applies to every <li> regardless. That
-    // mismatch (looks clickable, isn't) was part of "clicking doesn't work
-    // with no feedback"; not-clickable removes the affordance for the ones
-    // that were never going to do anything.
+    // Entries recorded since positions were stored jump to the exact spot;
+    // older ones (chapter index only) still fall back to the chapter start.
+    const isJumpable = hasPosition || entry.chapterIndex >= 0;
+    // Non-jumpable entries get no pointer cursor (the generic .chapter-list
+    // li rule would otherwise make them look clickable when they aren't).
     li.classList.toggle('not-clickable', !isJumpable);
     if (isJumpable) {
       li.addEventListener('click', () => {
-        // Visible acknowledgement that the tap registered at all, before
-        // even knowing whether the jump below succeeds — a silent click
-        // with literally nothing happening either way was the actual bug.
+        // Visible acknowledgement that the tap registered at all.
         li.classList.add('tapped');
         setTimeout(() => li.classList.remove('tapped'), 300);
 
+        if (hasPosition) {
+          player.seekTo(entry.position);
+          return;
+        }
         const jumped = player.jumpToChapter(entry.chapterIndex);
         if (!jumped) {
           showHistoryFeedback("Couldn't jump there yet — chapters may still be loading in the background. Try again in a moment.");
@@ -676,6 +734,7 @@ async function openPlayer(book) {
   stopSleepDisplay();
   renderHistory();
   lastDisplayedChapterIdx = -2;
+  lastDisplayedMarkerKey = null;
   hideClip();
 
   // Reset the chapters section for the NEW book right away, synchronously —

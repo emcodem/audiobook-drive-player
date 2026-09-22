@@ -377,6 +377,16 @@ body {
   font-weight: 600;
 }
 
+.chapter-list li.chapter-marker {
+  padding-left: 2.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.chapter-list li.chapter-marker.active {
+  color: var(--accent);
+}
+
 .chapter-list li.not-clickable {
   cursor: default;
 }
