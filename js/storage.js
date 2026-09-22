@@ -25,8 +25,41 @@ export function addBooks(newBooks) {
   return lib;
 }
 
+// Books the user removed from the library. Needed because every app load
+// re-scans the Drive folder (syncBooksFolder) and would otherwise simply
+// re-add every audio file it finds there — which is why removals never
+// survived a reload.
+const REMOVED_BOOKS_KEY = 'adp.removedBooks.v1';
+
+function getRemovedIds() {
+  try {
+    return JSON.parse(localStorage.getItem(REMOVED_BOOKS_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export function isBookRemoved(audioFileId) {
+  return getRemovedIds().includes(audioFileId);
+}
+
+// ids omitted = un-remove everything.
+export function restoreRemovedBooks(ids) {
+  if (!ids) {
+    localStorage.removeItem(REMOVED_BOOKS_KEY);
+    return;
+  }
+  const next = getRemovedIds().filter((id) => !ids.includes(id));
+  localStorage.setItem(REMOVED_BOOKS_KEY, JSON.stringify(next));
+}
+
 export function removeBook(audioFileId) {
   saveLibrary(getLibrary().filter((b) => b.audioFileId !== audioFileId));
+  const removed = getRemovedIds();
+  if (!removed.includes(audioFileId)) {
+    removed.push(audioFileId);
+    localStorage.setItem(REMOVED_BOOKS_KEY, JSON.stringify(removed));
+  }
   // Otherwise these orphan forever — removing a book from the library
   // never removed its position/history data, so localStorage usage grew
   // unbounded across every book ever added-then-removed over the app's

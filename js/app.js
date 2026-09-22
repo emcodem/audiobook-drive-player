@@ -6,6 +6,7 @@ import {
   getHistory,
   getLibraryFolderId,
   setLibraryFolderId,
+  restoreRemovedBooks,
   wasDownloaded,
   unmarkDownloaded,
 } from './storage.js';
@@ -657,7 +658,7 @@ function buildItemMenu(book) {
     removeLibBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       dropdown.classList.add('hidden');
-      if (!confirm(`Remove "${book.name}" from your library? You can add it back from the Drive folder later.`)) return;
+      if (!confirm(`Remove "${book.name}" from your library? To get it back later, select its file via "Grant access to new files".`)) return;
       removeBook(book.audioFileId);
       renderLibrary();
     });
@@ -790,6 +791,9 @@ els.scrubber.addEventListener('change', () => {
 els.addLibraryBtn.addEventListener('click', () => {
   openLibraryFolderPicker((folderId) => {
     setLibraryFolderId(folderId);
+    // Deliberately re-picking the library folder is a "start over" — bring
+    // back anything previously removed.
+    restoreRemovedBooks();
     syncLibrary();
   });
 });
@@ -797,7 +801,11 @@ els.grantFilesBtn.addEventListener('click', () => {
   // The picked docs themselves aren't needed here — the act of selecting
   // them in the dialog is what grants access under drive.file. Re-scanning
   // afterward picks them up via the normal folder-listing path.
-  openGrantFilesPicker(() => syncLibrary());
+  // Explicitly picking a previously removed book's file brings it back.
+  openGrantFilesPicker((docs) => {
+    restoreRemovedBooks(docs.map((d) => d.id));
+    syncLibrary();
+  });
 });
 els.loginBtn.disabled = true;
 els.loginBtn.textContent = 'Loading…';

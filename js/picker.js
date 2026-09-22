@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { getAccessToken } from './auth.js';
-import { addBooks, getLibrary } from './storage.js';
+import { addBooks, getLibrary, isBookRemoved } from './storage.js';
 
 const AUDIO_EXT = /\.(m4a|m4b|mp3)$/i;
 const CHAPTERS_EXT = /\.chapters\.json$/i;
@@ -116,7 +116,7 @@ export function syncBooksFolder(files) {
   if (!audioByBase.size) return getLibrary();
 
   const lib = getLibrary();
-  const books = [...audioByBase.entries()].map(([base, audio]) => {
+  const books = [...audioByBase.entries()].filter(([, audio]) => !isBookRemoved(audio.id)).map(([base, audio]) => {
     const existing = lib.find((b) => b.audioFileId === audio.id);
     return {
       name: base,
