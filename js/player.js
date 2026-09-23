@@ -6,6 +6,18 @@ import { verifyAndLogChunks } from './file-cache.js';
 
 const SAVE_INTERVAL_MS = 8000;
 
+// Chapters longer than this are split into virtual 30-min "parts" — in the
+// chapter list (app.js) and in the listening history — so a book with very
+// few, very long chapters (e.g. 2 chapters over 20h) stays navigable.
+export const LONG_CHAPTER_SECONDS = 45 * 60;
+export const MARKER_STEP_SECONDS = 30 * 60;
+// A seek covering more than this is logged in history as a "jumped away
+// from" entry, so an accidental scrub is always undoable with one tap.
+const JUMP_LOG_THRESHOLD_SECONDS = 2 * 60;
+// Scrubbing fires many seeks in a row; wait for it to settle so one drag
+// produces one history entry (from where playback was before the drag).
+const JUMP_SETTLE_MS = 1500;
+
 export class Player {
   constructor({ audioEl, onChaptersLoaded, onChaptersParsing, onLoadStatus, onTimeUpdate, onEnded, onSleepTimerEnded, onHistoryUpdated }) {
     this.audioEl = audioEl;
@@ -33,8 +45,13 @@ export class Player {
     this._sleepTimeoutId = null;
     this._sleepDeadline = null;
     this._lastHistoryChapterIndex = -1;
+    this._lastHistoryPartKey = null;
+    this._lastPlayPos = null;
+    this._jumpFrom = null;
+    clearTimeout(this._jumpTimer);
 
     audioEl.addEventListener('timeupdate', () => this._handleTimeUpdate());
+    audioEl.addEventListener('seeking', () => this._handleSeeking());
     audioEl.addEventListener('pause', () => this._savePosition());
     audioEl.addEventListener('ended', () => this.onEnded());
     audioEl.addEventListener('loadedmetadata', () => this._resume());
@@ -76,6 +93,10 @@ export class Player {
     this.book = book;
     this.chapters = [];
     this._lastHistoryChapterIndex = -1;
+    this._lastHistoryPartKey = null;
+    this._lastPlayPos = null;
+    this._jumpFrom = null;
+    clearTimeout(this._jumpTimer);
     this._chaptersReady = false;
     this._resumeApplied = false;
     this.setSleepTimer(0);
@@ -295,6 +316,78 @@ export class Player {
     return true;
   }
 
+  // Which virtual part of its chapter time `t` falls in. Chapters short
+  // enough not to be split are always part 1 of 1.
+  partAt(t) {
+    const idx = this._chapterIndexAt(t);
+    if (idx < 0) return null;
+    const ch = this.chapters[idx];
+    const end = this.chapterEnd(idx);
+    let total = 1;
+    if (end != null && end - ch.start > LONG_CHAPTER_SECONDS) {
+      for (let s = ch.start + MARKER_STEP_SECONDS; s < end - 60; s += MARKER_STEP_SECONDS) total++;
+    }
+    const part = Math.min(total, 1 + Math.floor((t - ch.start) / MARKER_STEP_SECONDS));
+    return { chapterIndex: idx, part, total };
+  }
+
+  // "Chapter 1 · Part 3/21" (or just the chapter title if it isn't split).
+  labelAt(t) {
+    const p = this.partAt(t);
+    if (!p) return this.book ? this.book.name : '';
+    const ch = this.chapters[p.chapterIndex];
+    const title = ch.title || `Chapter ${p.chapterIndex + 1}`;
+    return p.total > 1 ? `${title} · Part ${p.part}/${p.total}` : title;
+  }
+
+  _chapterIndexAt(t) {
+    let idx = -1;
+    for (let i = 0; i < this.chapters.length; i++) {
+      if (this.chapters[i].start <= t) idx = i;
+      else break;
+    }
+    return idx;
+  }
+
+  // Manual "remember this spot" entry in the listening history.
+  addBookmark() {
+    if (!this.book) return;
+    const t = this.audioEl.currentTime;
+    const p = this.partAt(t);
+    addHistoryEntry(this.book.audioFileId, {
+      type: 'bookmark',
+      chapterIndex: p ? p.chapterIndex : -1,
+      position: t,
+      title: this.labelAt(t),
+      at: Date.now(),
+    });
+    this.onHistoryUpdated();
+  }
+
+  _handleSeeking() {
+    // Nothing meaningful to jump *from* until something has actually been
+    // played since the book was opened — this also keeps the one-time
+    // resume seek on open from being logged as a jump.
+    if (this._lastPlayPos == null) return;
+    if (this._jumpFrom == null) this._jumpFrom = this._lastPlayPos;
+    clearTimeout(this._jumpTimer);
+    this._jumpTimer = setTimeout(() => {
+      const from = this._jumpFrom;
+      this._jumpFrom = null;
+      if (!this.book || from == null) return;
+      if (Math.abs(this.audioEl.currentTime - from) < JUMP_LOG_THRESHOLD_SECONDS) return;
+      const p = this.partAt(from);
+      addHistoryEntry(this.book.audioFileId, {
+        type: 'jump',
+        chapterIndex: p ? p.chapterIndex : -1,
+        position: from,
+        title: this.labelAt(from),
+        at: Date.now(),
+      });
+      this.onHistoryUpdated();
+    }, JUMP_SETTLE_MS);
+  }
+
   // End of chapter `index`: the next chapter's start, or the file's duration
   // for the last one (null if that isn't known yet).
   chapterEnd(index) {
@@ -362,6 +455,7 @@ export class Player {
   }
 
   _handleTimeUpdate() {
+    if (!this.audioEl.paused && !this.audioEl.seeking) this._lastPlayPos = this.audioEl.currentTime;
     this.onTimeUpdate(this.audioEl.currentTime, this.audioEl.duration);
     this._trackChapterHistory();
     const now = Date.now();
@@ -371,19 +465,23 @@ export class Player {
     }
   }
 
-  // Records a history entry whenever playback enters a new chapter, whether
-  // by natural advance, a chapter-list tap, or scrubbing — anything that
-  // counts as "starting to listen to" that chapter.
+  // Records a history entry whenever playback enters a new chapter — or a
+  // new virtual part of a long chapter — whether by natural advance, a
+  // chapter-list tap, or scrubbing: anything that counts as "starting to
+  // listen to" that part.
   _trackChapterHistory() {
     if (!this.chapters.length) return;
-    const idx = this.currentChapterIndex();
-    if (idx < 0 || idx === this._lastHistoryChapterIndex) return;
-    this._lastHistoryChapterIndex = idx;
-    const chapter = this.chapters[idx];
+    const t = this.audioEl.currentTime;
+    const p = this.partAt(t);
+    if (!p) return;
+    const key = `${p.chapterIndex}:${p.part}`;
+    if (key === this._lastHistoryPartKey) return;
+    this._lastHistoryPartKey = key;
+    this._lastHistoryChapterIndex = p.chapterIndex;
     addHistoryEntry(this.book.audioFileId, {
-      chapterIndex: idx,
-      position: this.audioEl.currentTime,
-      title: chapter.title || `Chapter ${idx + 1}`,
+      chapterIndex: p.chapterIndex,
+      position: t,
+      title: this.labelAt(t),
       at: Date.now(),
     });
     this.onHistoryUpdated();

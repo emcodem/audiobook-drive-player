@@ -345,6 +345,14 @@ body {
   display: block;
 }
 
+#bookmarkBtn {
+  margin-bottom: 0.5rem;
+}
+
+.chapter-list li.history-bookmark {
+  color: var(--accent);
+}
+
 .chapter-list li.history-sleep {
   color: var(--muted);
   font-style: italic;

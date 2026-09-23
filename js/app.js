@@ -10,7 +10,7 @@ import {
   wasDownloaded,
   unmarkDownloaded,
 } from './storage.js';
-import { Player } from './player.js';
+import { Player, LONG_CHAPTER_SECONDS, MARKER_STEP_SECONDS } from './player.js';
 import { getThumbnail } from './thumbnails.js';
 import { buildClipsMap, findClipNearMisses, chapterNumberFromTitle } from './clips.js';
 import { listFilesRecursive } from './drive.js';
@@ -50,6 +50,7 @@ const els = {
   chaptersLoadingMsg: document.getElementById('chaptersLoadingMsg'),
   chaptersParsingMsg: document.getElementById('chaptersParsingMsg'),
   historyList: document.getElementById('historyList'),
+  bookmarkBtn: document.getElementById('bookmarkBtn'),
   emptyHistoryMsg: document.getElementById('emptyHistoryMsg'),
   historyFeedbackMsg: document.getElementById('historyFeedbackMsg'),
   tokenBanner: document.getElementById('tokenBanner'),
@@ -314,8 +315,8 @@ els.audioEl.addEventListener('loadedmetadata', () => {
 // with very few, very long chapters (e.g. 2 chapters over 20h) is still
 // navigable from the list — the chapter-scoped scrubber alone is far too
 // coarse on a phone at that length (one pixel ≈ minutes).
-const LONG_CHAPTER_SECONDS = 45 * 60;
-const MARKER_STEP_SECONDS = 30 * 60;
+// (LONG_CHAPTER_SECONDS / MARKER_STEP_SECONDS live in player.js, which
+// also uses them for per-part history entries.)
 
 function renderChapters(chapters) {
   els.chaptersLoadingMsg.classList.add('hidden');
@@ -396,6 +397,8 @@ function renderHistory() {
     let label;
     if (entry.type === 'sleep') label = `Sleep timer set (${entry.minutes} min)${at} — ${entry.title}`;
     else if (entry.type === 'sleep-end') label = `Sleep timer stopped playback${at} — ${entry.title}`;
+    else if (entry.type === 'jump') label = `↩ Jumped away from${at} — ${entry.title}`;
+    else if (entry.type === 'bookmark') label = `🔖 Bookmark${at} — ${entry.title}`;
     else label = `${entry.title}${at}`;
     const titleText = document.createTextNode(label + ' ');
     const time = document.createElement('span');
@@ -403,7 +406,8 @@ function renderHistory() {
     time.textContent = formatHistoryTimestamp(entry.at);
     li.appendChild(titleText);
     li.appendChild(time);
-    if (entry.type === 'sleep' || entry.type === 'sleep-end') li.classList.add('history-sleep');
+    if (entry.type === 'sleep' || entry.type === 'sleep-end' || entry.type === 'jump') li.classList.add('history-sleep');
+    if (entry.type === 'bookmark') li.classList.add('history-bookmark');
 
     // Entries recorded since positions were stored jump to the exact spot;
     // older ones (chapter index only) still fall back to the chapter start.
@@ -793,6 +797,11 @@ els.scrubber.addEventListener('change', () => {
   scrubbing = false;
 });
 
+els.bookmarkBtn.addEventListener('click', () => {
+  player.addBookmark();
+  els.bookmarkBtn.classList.add('tapped');
+  setTimeout(() => els.bookmarkBtn.classList.remove('tapped'), 300);
+});
 els.addLibraryBtn.addEventListener('click', () => {
   openLibraryFolderPicker((folderId) => {
     setLibraryFolderId(folderId);
